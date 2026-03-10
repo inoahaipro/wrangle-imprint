@@ -1,12 +1,12 @@
 """
 imprint.py — Local Agentic Model (LAM) for OpenClaw
 =====================================================
-v0.2.0
+v0.1.0
 
 The core idea:
   LLM teaches once. IMPRINT executes forever after. Zero tokens for known tasks.
 
-What's new in v0.2.0:
+What's in v0.1.0:
   - Parameterized skills: send_message(contact, message) not hardcoded plans
   - Element-based targeting: tap by text/id/desc, not raw coordinates
   - Confirmation threshold: N successes required before trusting a plan
