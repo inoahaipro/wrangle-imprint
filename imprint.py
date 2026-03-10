@@ -1,12 +1,12 @@
 """
 imprint.py — Local Agentic Model (LAM) for OpenClaw
 =====================================================
-v0.1.0
+v1.0.0
 
 The core idea:
   LLM teaches once. IMPRINT executes forever after. Zero tokens for known tasks.
 
-What's in v0.1.0:
+What's in v1.0.0:
   - Parameterized skills: send_message(contact, message) not hardcoded plans
   - Element-based targeting: tap by text/id/desc, not raw coordinates
   - Confirmation threshold: N successes required before trusting a plan
@@ -58,7 +58,7 @@ from collections import Counter
 # ── Config ────────────────────────────────────────────────────────────────────
 
 # CEREBRAS_KEY can be set via env; falls back to the key from openclaw.json
-CEREBRAS_KEY = os.environ.get("CEREBRAS_KEY", "csk-k5xdj2ffhnejne8t43585w9yh46k25vv6cmnxtxmc8vhxc6j")
+CEREBRAS_KEY = os.environ.get("CEREBRAS_KEY")
 CEREBRAS_URL = "https://api.cerebras.ai/v1"
 TEXT_MODEL   = "gpt-oss-120b"
 ADB_PORT     = os.environ.get("ADB_PORT", "34371")
@@ -72,7 +72,7 @@ MAX_STEPS    = int(os.environ.get("IMPRINT_MAX_STEPS", "20"))
 TASK_TIMEOUT = int(os.environ.get("IMPRINT_TIMEOUT",   "120"))
 MAX_RETRIES  = int(os.environ.get("IMPRINT_RETRIES",   "2"))
 DEBUG        = os.environ.get("IMPRINT_DEBUG", "0") == "1"
-VERSION      = "0.3.0"
+VERSION      = "1.0.0"
 
 # ── Error codes (use these, not raw strings) ──────────────────────────────────
 ERR_ADB_UNAVAILABLE   = "adb_unavailable"

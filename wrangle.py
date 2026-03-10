@@ -1,5 +1,5 @@
 """
-wrangle.py — Android UI Controller v0.3.0 (IMPRINT execution adapter)
+wrangle.py — Android UI Controller v1.0.0 (IMPRINT execution adapter)
 ==========================================================
 
 WHAT THIS DOES:
@@ -66,7 +66,7 @@ import xml.etree.ElementTree as ET
 ADB_PORT      = os.environ.get("ADB_PORT", "34371")
 ADB           = f"adb -s localhost:{ADB_PORT}"
 # CEREBRAS_KEY can be set via env; falls back to the key from openclaw.json
-CEREBRAS_KEY  = os.environ.get("CEREBRAS_KEY", "csk-k5xdj2ffhnejne8t43585w9yh46k25vv6cmnxtxmc8vhxc6j")
+CEREBRAS_KEY  = os.environ.get("CEREBRAS_KEY")
 CEREBRAS_URL  = "https://api.cerebras.ai/v1"
 TEXT_MODEL    = "gpt-oss-120b"
 SDCARD_SCREEN = "/sdcard/screen.png"
