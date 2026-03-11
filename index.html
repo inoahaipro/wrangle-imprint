@@ -796,7 +796,7 @@
       <p class="hero-sub">
         A local phone brain for Android. The LLM teaches a task once —
         <strong>IMPRINT executes it forever</strong> from SQLite memory
-        with zero tokens. No cloud. No subscriptions. Runs in Termux.
+        with zero tokens. Uses your OpenClaw default LLM session for new tasks. Runs in Termux.
       </p>
       <div class="hero-actions">
         <a href="https://github.com/inoahaipro/wrangle-imprint" target="_blank" class="btn-primary">
@@ -1070,7 +1070,7 @@
 <span class="c-cmd">cd</span> wrangle-imprint
 <span class="c-cmd">mkdir -p</span> ~/.imprint
 
-<span class="c-comment"># Set your OpenClaw session for IMPRINT planning</span>
+<span class="c-comment"># Optional: pick an OpenClaw session (default is main)</span>
 <span class="c-cmd">export</span> <span class="c-key">OPENCLAW_SESSION</span>=<span class="c-flag">main</span></pre>
           </div>
           <div class="qs-content" id="tab-adb">
@@ -1085,7 +1085,8 @@
 <span class="c-flag">── wrangle setup check ──
 ✅ ADB: localhost:34371 connected
 ✅ ADBKeyboard: active
-⚠️ CEREBRAS_KEY: NOT set (optional in v2)</span></pre>
+✅ CEREBRAS_KEY: set (for wrangle LLM tracks)
+✅ OPENCLAW CLI/session: available (for imprint planning)</span></pre>
           </div>
           <div class="qs-content" id="tab-first-run">
             <pre class="code-block"><span class="c-comment"># First run — cache miss, LLM plans it</span>

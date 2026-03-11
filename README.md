@@ -1,6 +1,6 @@
-# wrangle-imprint
+# wrangle-imprint v2
 
-**wrangle-imprint** is a local "phone brain" for Android — a two-part system that lets a language model teach your phone to do tasks once, then replay them forever from local memory with zero API calls.
+**wrangle-imprint v2** is a local "phone brain" for Android — a two-part system that lets a language model teach your phone to do tasks once, then replay them forever from local memory with zero API calls.
 
 - **`wrangle.py`** — A text-first Android UI controller that can tap, type, scroll, launch apps, and read the screen via ADB + UIAutomator.
 - **`imprint.py`** — A Local Agentic Model (LAM) that turns natural language intents into reusable plans stored in SQLite and executed by `wrangle.py`.
@@ -42,6 +42,8 @@ Early-stage but functional. Currently supports:
 - Ranking and summarizing the current Android screen via UIAutomator
 - Executing structured actions: `tap` / `type` / `scroll` / `swipe` / `keyevent` / `launch` / `back` / `done`
 - Caching successful plans in SQLite and reusing them for similar intents
+- Mid-task replan + per-step retries when a step fails on live UI
+- Queue + flush mode (`imprint.py ask --queue`, `imprint.py flush`) for temporary ADB outages
 - Guarding destructive operations (delete / uninstall / purchase / etc.) unless explicitly confirmed with `--confirmed`
 
 **Tested on:**
@@ -104,7 +106,7 @@ adb shell ime set com.android.adbkeyboard/.AdbIME
 
 `wrangle.py` temporarily switches to ADBKeyboard for `type` actions and then restores your original keyboard automatically.
 
-### 5. LLM Backend (for planning)
+### 5. LLM Backend (v2 behavior)
 
 In v2, IMPRINT plans through your configured OpenClaw session:
 
