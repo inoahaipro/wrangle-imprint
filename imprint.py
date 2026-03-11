@@ -38,7 +38,7 @@ USAGE:
   python imprint.py check
 
 ENV VARS:
-  CEREBRAS_KEY        Required for unknown tasks
+  OPENCLAW_SESSION    OpenClaw session to use for planning (default "main")
   ADB_PORT            Default 34371 (OpenClaw Termux: 34371)
   IMPRINT_DB          Default ~/.imprint/memory.db
   IMPRINT_THRESHOLD   Similarity threshold (default 0.72)
@@ -50,17 +50,16 @@ ENV VARS:
   IMPRINT_DEBUG       Set 1 for verbose logging
 """
 
-import os, re, sys, json, math, time, hashlib, sqlite3, subprocess, requests, logging
+import os, re, sys, json, math, time, hashlib, sqlite3, subprocess, logging
 PYTHON = sys.executable  # always use the running interpreter, not bare "python"
 from datetime import datetime
 from collections import Counter
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-# CEREBRAS_KEY can be set via env; falls back to the key from openclaw.json
-CEREBRAS_KEY = os.environ.get("CEREBRAS_KEY")
-CEREBRAS_URL = "https://api.cerebras.ai/v1"
-TEXT_MODEL   = "gpt-oss-120b"
+# OpenClaw agent session to use for LLM planning.
+# Override with OPENCLAW_SESSION env var if you use a different session name.
+OPENCLAW_SESSION = os.environ.get("OPENCLAW_SESSION", "main")
 ADB_PORT     = os.environ.get("ADB_PORT", "34371")
 DB_PATH      = os.environ.get("IMPRINT_DB", os.path.expanduser("~/.imprint/memory.db"))
 THRESHOLD    = float(os.environ.get("IMPRINT_THRESHOLD", "0.72"))
@@ -84,7 +83,7 @@ ERR_SCREEN_DRIFT      = "screen_drift"
 ERR_UNSAFE_BLOCKED    = "unsafe_action_blocked"
 ERR_MAX_STEPS         = "max_steps_exceeded"
 ERR_TIMEOUT           = "task_timeout"
-ERR_NO_LLM_KEY        = "llm_key_missing"
+ERR_NO_LLM_KEY        = "openclaw_unavailable"
 
 logging.basicConfig(level=logging.DEBUG if DEBUG else logging.WARNING, format="[%(levelname)s] %(message)s")
 log = logging.getLogger("imprint")
@@ -652,7 +651,7 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
 
             # Mid-task replan
             remaining = [s for s in steps[i:] if s.get("action") != "done"]
-            if remaining and CEREBRAS_KEY:
+            if remaining and OPENCLAW_SESSION:
                 print(f"  🔄 Mid-task replan for {len(remaining)} remaining steps...")
                 replan_t0 = time.time()
                 cur_state = pc_get_state(task=intent)
@@ -688,10 +687,33 @@ RULES:
 - Always end with {"action":"done","reason":"..."}
 - Return ONLY a JSON array. No markdown. No explanation."""
 
-def ask_llm_for_plan(intent, template, params, phone_state):
-    if not CEREBRAS_KEY:
-        return None, ERR_NO_LLM_KEY, 0, 0
+def _ask_openclaw(prompt, timeout=60):
+    """
+    Send a prompt to OpenClaw via CLI and return (text, tokens, duration_ms).
+    Uses: openclaw agent --session-id <session> --message <prompt> --json
+    Parses: result.payloads[0].text and result.meta.agentMeta.usage.total
+    """
+    t0 = time.time()
+    try:
+        r = subprocess.run(
+            ["openclaw", "agent", "--session-id", OPENCLAW_SESSION,
+             "--message", prompt, "--json"],
+            capture_output=True, text=True, timeout=timeout
+        )
+        ms = int((time.time() - t0) * 1000)
+        if r.returncode != 0:
+            err = r.stderr.strip() or r.stdout.strip()
+            return None, f"openclaw exit {r.returncode}: {err[:200]}", 0, ms
+        data = json.loads(r.stdout.strip())
+        text = data["result"]["payloads"][0]["text"].strip()
+        tok  = data["result"]["meta"]["agentMeta"]["usage"].get("total", 0)
+        return text, None, tok, ms
+    except subprocess.TimeoutExpired:
+        return None, "openclaw timeout", 0, int((time.time()-t0)*1000)
+    except Exception as e:
+        return None, str(e), 0, int((time.time()-t0)*1000)
 
+def ask_llm_for_plan(intent, template, params, phone_state):
     elements = []
     for el in phone_state.get("elements", [])[:20]:
         e = {}
@@ -702,7 +724,9 @@ def ask_llm_for_plan(intent, template, params, phone_state):
         if el.get("x"):            e["x"], e["y"] = el["x"], el["y"]
         if e: elements.append(e)
 
-    prompt = f"""Task: {intent}
+    prompt = f"""{PLAN_SYSTEM}
+
+Task: {intent}
 Template: {template}
 Params: {json.dumps(params)}
 Foreground: {phone_state.get("foreground_app","unknown")}
@@ -711,56 +735,34 @@ UI elements: {json.dumps(elements)}
 Plan abstract steps using {{slot}} placeholders. Prefer element targeting.
 Example target: {{"text":"Send"}}, {{"id":"send_button"}}, {{"desc":"Search"}}"""
 
-    t0 = time.time()
+    raw, error, tok, ms = _ask_openclaw(prompt, timeout=60)
+    if error:
+        return None, error, tok, ms
+    m = re.search(r'\[.*\]', raw, re.DOTALL)
+    if not m:
+        return None, f"No JSON array in response: {raw[:200]}", tok, ms
     try:
-        resp = requests.post(
-            f"{CEREBRAS_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
-            json={"model": TEXT_MODEL,
-                  "messages": [{"role":"system","content":PLAN_SYSTEM},{"role":"user","content":prompt}],
-                  "max_tokens": 1500, "temperature": 0.1},
-            timeout=30
-        )
-        resp.raise_for_status()
-        ms  = int((time.time()-t0)*1000)
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
-        tok = resp.json().get("usage",{}).get("total_tokens",0)
-        m   = re.search(r'\[.*\]', raw, re.DOTALL)
-        if not m:
-            return None, f"No JSON array: {raw[:200]}", tok, ms
         return json.loads(m.group(0)), None, tok, ms
     except Exception as e:
-        return None, str(e), 0, 0
+        return None, f"JSON parse error: {e}", tok, ms
 
 def ask_llm_replan(intent, failed_step, current_state, remaining_steps):
-    if not CEREBRAS_KEY:
-        return None, 0, 0
-    elements = current_state.get("elements",[])[:15]
-    prompt = f"""Task: {intent}
+    elements = current_state.get("elements", [])[:15]
+    prompt = f"""{PLAN_SYSTEM}
+
+Task: {intent}
 Failed step: {json.dumps(failed_step)}
 Current app: {current_state.get("foreground_app","unknown")}
 Current UI: {json.dumps(elements)}
 Remaining planned: {json.dumps(remaining_steps)}
 
 Provide ONLY revised remaining steps as JSON array to complete the task from current screen."""
-    t0 = time.time()
-    try:
-        resp = requests.post(
-            f"{CEREBRAS_URL}/chat/completions",
-            headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
-            json={"model": TEXT_MODEL,
-                  "messages": [{"role":"system","content":PLAN_SYSTEM},{"role":"user","content":prompt}],
-                  "max_tokens": 1000, "temperature": 0.1},
-            timeout=20
-        )
-        resp.raise_for_status()
-        ms  = int((time.time()-t0)*1000)
-        raw = resp.json()["choices"][0]["message"]["content"].strip()
-        tok = resp.json().get("usage",{}).get("total_tokens",0)
-        m   = re.search(r'\[.*\]', raw, re.DOTALL)
-        return (json.loads(m.group(0)) if m else None), tok, ms
-    except Exception:
-        return None, 0, 0
+
+    raw, error, tok, ms = _ask_openclaw(prompt, timeout=45)
+    if error or not raw:
+        return None, tok, ms
+    m = re.search(r'\[.*\]', raw, re.DOTALL)
+    return (json.loads(m.group(0)) if m else None), tok, ms
 
 # ── Core Router ───────────────────────────────────────────────────────────────
 
@@ -835,7 +837,7 @@ def route(intent, conn, dry_run=False, confirmed=False):
     if not plan:
         print(f"\n🔍 Cache MISS (best sim={sim:.2f}) — querying LLM...")
 
-        if not CEREBRAS_KEY:
+        if not OPENCLAW_SESSION:
             return {"source":"llm","success":False,"error":ERR_NO_LLM_KEY}
 
         print("  Getting phone state...")
@@ -1017,7 +1019,19 @@ def forget_plan(conn, intent):
 def run_check():
     print(f"── IMPRINT v{VERSION} check {'─'*30}")
     print(f"{'✅' if os.path.exists(WRANGLE) else '❌'} wrangle:    {WRANGLE}")
-    print(f"{'✅' if CEREBRAS_KEY else '⚠️ '} CEREBRAS_KEY: {'set' if CEREBRAS_KEY else 'not set'}")
+    # Check openclaw CLI is available and session exists
+    try:
+        r = subprocess.run([
+            "openclaw", "agent", "--session-id", OPENCLAW_SESSION,
+            "--message", "reply with the single word ok", "--json"
+        ], capture_output=True, text=True, timeout=30)
+        ok_resp = r.returncode == 0
+        print(
+            f"{'✅' if ok_resp else '❌'} OpenClaw:     session='{OPENCLAW_SESSION}' "
+            f"{'reachable' if ok_resp else 'FAILED — ' + (r.stderr.strip()[:60] or 'unknown error')}"
+        )
+    except Exception as e:
+        print(f"⚠️  OpenClaw:     session='{OPENCLAW_SESSION}' check failed ({e})")
     try:
         conn = init_db()
         p = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
