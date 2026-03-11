@@ -106,19 +106,13 @@ adb shell ime set com.android.adbkeyboard/.AdbIME
 
 ### 5. LLM Backend (for planning)
 
-IMPRINT uses Cerebras GPT-OSS-120B by default:
-
-```python
-CEREBRAS_URL = "https://api.cerebras.ai/v1"
-TEXT_MODEL   = "gpt-oss-120b"
-CEREBRAS_KEY = os.environ.get("CEREBRAS_KEY", "<key from openclaw.json>")
-```
-
-Set your key in Termux:
+In v2, IMPRINT plans through your configured OpenClaw session:
 
 ```bash
-export CEREBRAS_KEY="csk-...your-cerebras-key..."
+export OPENCLAW_SESSION="main"
 ```
+
+`CEREBRAS_KEY` is **optional** now and only needed if you run wrangle's direct text/browser tracks yourself.
 
 > Once a plan is learned, IMPRINT can replay it from cache without calling the LLM again.
 
@@ -182,7 +176,7 @@ sh -c 'sleep 5; cd ~/wrangle-imprint/src; python wrangle.py do_action --json "{\
 
 ### 2. IMPRINT — plan and execute a task
 
-Once Cerebras networking is working from Termux:
+Once OpenClaw is configured and reachable from Termux:
 
 ```bash
 cd ~/wrangle-imprint/src
@@ -228,7 +222,7 @@ If you're writing a dispatcher or a new execution adapter, start there.
 
 ## Roadmap
 
-- [ ] Local proxy so IMPRINT uses whatever model OpenClaw is currently pointed at, instead of a hardcoded Cerebras backend
+- [ ] Provider-aware planning profiles (local/cloud) with per-task routing from OpenClaw session config
 - [ ] USB-first ADB setup so Wi-Fi isn't required
 - [ ] Better browser automation loop for Chrome (via `agent-browser`)
 - [ ] Prebuilt skill packs for common tasks: messaging, toggles, settings, etc.
@@ -262,4 +256,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-

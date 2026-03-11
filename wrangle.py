@@ -1,5 +1,5 @@
 """
-wrangle.py — Android UI Controller v1.0.0 (IMPRINT execution adapter)
+wrangle.py — Android UI Controller v2.0.0 (IMPRINT execution adapter)
 ==========================================================
 
 WHAT THIS DOES:
@@ -1158,7 +1158,7 @@ def perform_action(action):
 
 
 def run_check():
-    """Validate setup: ADB connection, ADBKeyboard IME, Cerebras key, Ollama."""
+    """Validate setup: ADB connection, ADBKeyboard IME, optional Cerebras key, Ollama."""
     import urllib.request as _req
     import json as _j
     ok = True
@@ -1182,10 +1182,9 @@ def run_check():
             print("   → adb shell ime set com.android.adbkeyboard/.AdbIME")
 
     key_ok = bool(CEREBRAS_KEY)
-    print(f"{'✅' if key_ok else '❌'} CEREBRAS_KEY: {'set' if key_ok else 'NOT set'}")
+    print(f"{'✅' if key_ok else '⚠️ '} CEREBRAS_KEY: {'set' if key_ok else 'NOT set (optional in v2)'}")
     if not key_ok:
-        print("   → export CEREBRAS_KEY=your_key_here")
-        ok = False
+        print("   → only needed for direct wrangle text/browser tracks")
 
     try:
         with _req.urlopen(f"{OLLAMA_URL}/api/tags", timeout=3) as resp:

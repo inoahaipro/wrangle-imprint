@@ -1,12 +1,12 @@
 """
 imprint.py — Local Agentic Model (LAM) for OpenClaw
 =====================================================
-v1.0.0
+v2.0.0
 
 The core idea:
   LLM teaches once. IMPRINT executes forever after. Zero tokens for known tasks.
 
-What's in v1.0.0:
+What's in v2.0.0:
   - Parameterized skills: send_message(contact, message) not hardcoded plans
   - Element-based targeting: tap by text/id/desc, not raw coordinates
   - Confirmation threshold: N successes required before trusting a plan
@@ -71,7 +71,7 @@ MAX_STEPS    = int(os.environ.get("IMPRINT_MAX_STEPS", "20"))
 TASK_TIMEOUT = int(os.environ.get("IMPRINT_TIMEOUT",   "120"))
 MAX_RETRIES  = int(os.environ.get("IMPRINT_RETRIES",   "2"))
 DEBUG        = os.environ.get("IMPRINT_DEBUG", "0") == "1"
-VERSION      = "1.0.0"
+VERSION      = "2.0.0"
 
 # ── Error codes (use these, not raw strings) ──────────────────────────────────
 ERR_ADB_UNAVAILABLE   = "adb_unavailable"

@@ -791,7 +791,7 @@
   <!-- ── Hero ── -->
   <section class="hero">
     <div class="hero-left">
-      <div class="hero-tag">Android automation · local · v1.0.0</div>
+      <div class="hero-tag">Android automation · local · v2.0.0</div>
       <h1>teach it once.<br/><em>replay forever.</em></h1>
       <p class="hero-sub">
         A local phone brain for Android. The LLM teaches a task once —
@@ -817,7 +817,7 @@
 <span class="t-muted">$ </span><span class="t-cmd">python imprint.py ask</span> <span class="t-str">"open youtube and search for lo-fi hip hop"</span>
 
 <span class="t-dim">══════════════════════════════════════════════════════</span>
-  IMPRINT v1.0.0
+  IMPRINT v2.0.0
   Intent:   open youtube and search for lo-fi hip hop
   Template: open <span class="t-key">{app}</span> and search for <span class="t-key">{message}</span>
 <span class="t-dim">══════════════════════════════════════════════════════</span>
@@ -904,7 +904,7 @@
             </div>
             <div class="flow-content">
               <div class="flow-who llm">llm (only on miss)</div>
-              <div class="flow-text">Cerebras GPT-OSS-120B plans abstract steps</div>
+              <div class="flow-text">OpenClaw session plans abstract steps</div>
               <div class="flow-sub">Element-based targeting, not raw coordinates.</div>
             </div>
           </div>
@@ -1070,8 +1070,8 @@
 <span class="c-cmd">cd</span> wrangle-imprint
 <span class="c-cmd">mkdir -p</span> ~/.imprint
 
-<span class="c-comment"># Set your Cerebras key</span>
-<span class="c-cmd">export</span> <span class="c-key">CEREBRAS_KEY</span>=<span class="c-flag">csk-your-key-here</span></pre>
+<span class="c-comment"># Set your OpenClaw session for IMPRINT planning</span>
+<span class="c-cmd">export</span> <span class="c-key">OPENCLAW_SESSION</span>=<span class="c-flag">main</span></pre>
           </div>
           <div class="qs-content" id="tab-adb">
             <pre class="code-block"><span class="c-comment"># Install ADBKeyboard APK on your phone, then:</span>
@@ -1085,7 +1085,7 @@
 <span class="c-flag">── wrangle setup check ──
 ✅ ADB: localhost:34371 connected
 ✅ ADBKeyboard: active
-✅ CEREBRAS_KEY: set</span></pre>
+⚠️ CEREBRAS_KEY: NOT set (optional in v2)</span></pre>
           </div>
           <div class="qs-content" id="tab-first-run">
             <pre class="code-block"><span class="c-comment"># First run — cache miss, LLM plans it</span>
@@ -1106,7 +1106,8 @@
 <span class="c-cmd">cp</span> env.example .env
 
 <span class="c-comment"># Key settings</span>
-<span class="c-key">CEREBRAS_KEY</span>=csk-...  <span class="c-comment"># required</span>
+<span class="c-key">OPENCLAW_SESSION</span>=main  <span class="c-comment"># required for IMPRINT planning</span>
+<span class="c-key">CEREBRAS_KEY</span>=csk-...  <span class="c-comment"># optional for direct wrangle text/browser tracks</span>
 <span class="c-key">IMPRINT_THRESHOLD</span>=0.72  <span class="c-comment"># cache match strictness</span>
 <span class="c-key">IMPRINT_CONFIRM</span>=2  <span class="c-comment"># runs before "trusted"</span>
 <span class="c-key">IMPRINT_MAX_STEPS</span>=20  <span class="c-comment"># safety cap</span>
