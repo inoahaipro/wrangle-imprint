@@ -1,6 +1,6 @@
-# wrangle-imprint
+# wrangle-imprint v2
 
-**wrangle-imprint** is a local "phone brain" for Android — a two-part system that lets a language model teach your phone to do tasks once, then replay them forever from local memory with zero API calls.
+**wrangle-imprint v2** is a local "phone brain" for Android — a two-part system that lets a language model teach your phone to do tasks once, then replay them forever from local memory with zero API calls.
 
 - **`wrangle.py`** — A text-first Android UI controller that can tap, type, scroll, launch apps, and read the screen via ADB + UIAutomator.
 - **`imprint.py`** — A Local Agentic Model (LAM) that turns natural language intents into reusable plans stored in SQLite and executed by `wrangle.py`.
@@ -42,6 +42,8 @@ Early-stage but functional. Currently supports:
 - Ranking and summarizing the current Android screen via UIAutomator
 - Executing structured actions: `tap` / `type` / `scroll` / `swipe` / `keyevent` / `launch` / `back` / `done`
 - Caching successful plans in SQLite and reusing them for similar intents
+- Mid-task replan + per-step retries when a step fails on live UI
+- Queue + flush mode (`imprint.py ask --queue`, `imprint.py flush`) for temporary ADB outages
 - Guarding destructive operations (delete / uninstall / purchase / etc.) unless explicitly confirmed with `--confirmed`
 
 **Tested on:**
@@ -104,21 +106,21 @@ adb shell ime set com.android.adbkeyboard/.AdbIME
 
 `wrangle.py` temporarily switches to ADBKeyboard for `type` actions and then restores your original keyboard automatically.
 
-### 5. LLM Backend (for planning)
+### 5. LLM Backend (v2 behavior)
 
-IMPRINT uses Cerebras GPT-OSS-120B by default:
-
-```python
-CEREBRAS_URL = "https://api.cerebras.ai/v1"
-TEXT_MODEL   = "gpt-oss-120b"
-CEREBRAS_KEY = os.environ.get("CEREBRAS_KEY", "<key from openclaw.json>")
-```
-
-Set your key in Termux:
+IMPRINT now plans through your **OpenClaw session** (default `OPENCLAW_SESSION=main`) by calling:
 
 ```bash
-export CEREBRAS_KEY="csk-...your-cerebras-key..."
+openclaw agent --session-id main --message "..." --json
 ```
+
+That means IMPRINT uses whatever default model/provider OpenClaw is configured with (for example OpenClaw's default GPT-OSS setup), instead of requiring direct Cerebras configuration in `imprint.py`.
+
+```bash
+export OPENCLAW_SESSION=main   # optional override
+```
+
+`wrangle.py` still supports direct Cerebras calls for browser/native text reasoning tracks, so set `CEREBRAS_KEY` if you run wrangle LLM tracks directly.
 
 > Once a plan is learned, IMPRINT can replay it from cache without calling the LLM again.
 
@@ -182,7 +184,7 @@ sh -c 'sleep 5; cd ~/wrangle-imprint/src; python wrangle.py do_action --json "{\
 
 ### 2. IMPRINT — plan and execute a task
 
-Once Cerebras networking is working from Termux:
+Once OpenClaw is installed and your target session is available in Termux:
 
 ```bash
 cd ~/wrangle-imprint/src
@@ -228,7 +230,7 @@ If you're writing a dispatcher or a new execution adapter, start there.
 
 ## Roadmap
 
-- [ ] Local proxy so IMPRINT uses whatever model OpenClaw is currently pointed at, instead of a hardcoded Cerebras backend
+- [ ] Route wrangle text/browser reasoning through OpenClaw too (so both files share one model/session config)
 - [ ] USB-first ADB setup so Wi-Fi isn't required
 - [ ] Better browser automation loop for Chrome (via `agent-browser`)
 - [ ] Prebuilt skill packs for common tasks: messaging, toggles, settings, etc.
