@@ -1,1302 +1,1090 @@
 """
-wrangle.py — Android UI Controller v1.0.0 (IMPRINT execution adapter)
-==========================================================
+imprint.py — Local Agentic Model (LAM) for OpenClaw
+=====================================================
+v1.0.0
 
-WHAT THIS DOES:
-  Controls Chrome and Android apps using a text-first approach.
+The core idea:
+  LLM teaches once. IMPRINT executes forever after. Zero tokens for known tasks.
 
-  TRACK 1 — BROWSER (Chrome via agent-browser + Cerebras):
-    Uses agent-browser --cdp 9222 to get an accessibility tree snapshot
-    of Chrome, feeds it as text to Cerebras GPT-OSS 120B, gets back an
-    action (click ref / type / press key), executes it.
+What's in v1.0.0:
+  - Parameterized skills: send_message(contact, message) not hardcoded plans
+  - Element-based targeting: tap by text/id/desc, not raw coordinates
+  - Confirmation threshold: N successes required before trusting a plan
+  - Per-step retry logic with structured results
+  - Mid-task replan: step failure escalates to LLM with current state
+  - Active screen transition detection after every tap
+  - Keyboard/focus detection before typing
+  - Task timeout + max steps guard
+  - Installed apps auto-discovery
+  - Debug mode logging
 
-  TRACK 2 — NATIVE APPS (UIAutomator + Cerebras):
-    Dumps the Android UI hierarchy as XML, ranks useful elements,
-    feeds a compact structured summary to Cerebras, gets back an
-    action (tap / type / swipe / keyevent / launch / done), executes it.
+How it works:
+  1. Intent arrives → param extraction strips variables
+  2. IMPRINT searches cache using normalized template + local TF-IDF
+  3. HIT (trusted)  → resolve params → element-based execution → verify each step
+  4. HIT (pending)  → execute → increment confirm count → promote at threshold
+  5. MISS           → LLM plans abstract steps → execute → store as pending
 
-  TRACK 3 — NATIVE VISION (optional, currently disabled in auto-routing):
-    Screenshot + vision LLM fallback for weird apps where UIAutomator is weak.
+No hallucinations: IMPRINT never generates actions. It only executes stored
+procedures validated by LLM and confirmed through repeated real-world success.
 
-NOTES:
-  - Text-first native control is the default because it is faster,
-    cheaper, and less janky than screenshot vision for most apps.
-  - Screen hashing and repeat detection help prevent dumb repeat loops.
-  - Vision fallback uses Moondream via Ollama (no API key needed).
-  - Run: python wrangle.py check  to validate setup before first use.
+USAGE:
+  python imprint.py ask "message mom on WhatsApp hey"
+  python imprint.py ask "turn on wifi" --dry
+  python imprint.py stats
+  python imprint.py list
+  python imprint.py forget "message mom"
+  python imprint.py apps
+  python imprint.py check
 
-REQUIREMENTS:
-  pip install requests
-  ADBKeyboard APK installed and set as active IME:
-    adb install ADBKeyboard.apk
-    adb shell ime set com.android.adbkeyboard/.AdbIME
-  Ollama + moondream for vision fallback (optional):
-    ollama pull moondream
-
-CONFIG (env vars):
-  ADB_PORT                ADB port (default 34371; standard ADB-over-TCP is 5555)
-  CEREBRAS_KEY            Cerebras API key (required for text/browser tracks)
-  WRANGLE_MAX_UI_ELEMENTS Max ranked UI elements sent to LLM (default 24)
-  WRANGLE_ADB_RETRIES     Reconnect attempts on lost connection (default 3)
-  OLLAMA_URL              Ollama endpoint (default http://localhost:11434)
-  VISION_MODEL            Ollama vision model (default moondream)
-  DEVICE_WIDTH / HEIGHT   Screen resolution (default 1080x2340 for S22+)
-
-ADB CONNECTIVITY:
-  Runs IN Termux on the device — connects via localhost ADB.
-  When WiFi drops, adbd may kill the TCP socket even on loopback.
-  ensure_connected() auto-reconnects before every operation.)
+ENV VARS:
+  CEREBRAS_KEY        Required for unknown tasks
+  ADB_PORT            Default 34371 (OpenClaw Termux: 34371)
+  IMPRINT_DB          Default ~/.imprint/memory.db
+  IMPRINT_THRESHOLD   Similarity threshold (default 0.72)
+  WRANGLE_PATH      Path to wrangle.py
+  IMPRINT_CONFIRM     Successes before trusting plan (default 2)
+  IMPRINT_MAX_STEPS   Max steps per task (default 20)
+  IMPRINT_TIMEOUT     Task timeout seconds (default 120)
+  IMPRINT_RETRIES     Retries per failed action (default 2)
+  IMPRINT_DEBUG       Set 1 for verbose logging
 """
 
-import subprocess
-import json
-import requests
-import time
-import os
-import base64
-import hashlib
-import re
-import logging
-import xml.etree.ElementTree as ET
+import os, re, sys, json, math, time, hashlib, sqlite3, subprocess, requests, logging
+PYTHON = sys.executable  # always use the running interpreter, not bare "python"
+from datetime import datetime
+from collections import Counter
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
-# ADB_PORT: 5555 is the standard ADB-over-TCP default.
-# OpenClaw Termux tunnel uses 34371 — set ADB_PORT=34371 in that case.
-ADB_PORT      = os.environ.get("ADB_PORT", "34371")
-ADB           = f"adb -s localhost:{ADB_PORT}"
 # CEREBRAS_KEY can be set via env; falls back to the key from openclaw.json
-CEREBRAS_KEY  = os.environ.get("CEREBRAS_KEY")
-CEREBRAS_URL  = "https://api.cerebras.ai/v1"
-TEXT_MODEL    = "gpt-oss-120b"
-SDCARD_SCREEN = "/sdcard/screen.png"
-LOCAL_SCREEN  = os.path.expanduser("~/screen.png")
-AB            = "npx agent-browser --cdp 9222"
-MAX_UI_ELEMENTS = int(os.environ.get("WRANGLE_MAX_UI_ELEMENTS", "24"))
-ADB_RETRIES     = int(os.environ.get("WRANGLE_ADB_RETRIES",     "3"))
+CEREBRAS_KEY = os.environ.get("CEREBRAS_KEY")
+CEREBRAS_URL = "https://api.cerebras.ai/v1"
+TEXT_MODEL   = "gpt-oss-120b"
+ADB_PORT     = os.environ.get("ADB_PORT", "34371")
+DB_PATH      = os.environ.get("IMPRINT_DB", os.path.expanduser("~/.imprint/memory.db"))
+THRESHOLD    = float(os.environ.get("IMPRINT_THRESHOLD", "0.72"))
+WRANGLE      = os.environ.get("WRANGLE_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "wrangle.py"))
+MAX_FAILURES = 3
+DECAY_DAYS   = 30
+N_CONFIRM    = int(os.environ.get("IMPRINT_CONFIRM",   "2"))
+MAX_STEPS    = int(os.environ.get("IMPRINT_MAX_STEPS", "20"))
+TASK_TIMEOUT = int(os.environ.get("IMPRINT_TIMEOUT",   "120"))
+MAX_RETRIES  = int(os.environ.get("IMPRINT_RETRIES",   "2"))
+DEBUG        = os.environ.get("IMPRINT_DEBUG", "0") == "1"
+VERSION      = "1.0.0"
 
-log = logging.getLogger("wrangle")
+# ── Error codes (use these, not raw strings) ──────────────────────────────────
+ERR_ADB_UNAVAILABLE   = "adb_unavailable"
+ERR_STATE_PARSE       = "state_parse_error"
+ERR_TARGET_NOT_FOUND  = "target_not_found"
+ERR_LAUNCH_FAILED     = "launch_failed"
+ERR_INPUT_FAILED      = "input_failed"
+ERR_SCREEN_DRIFT      = "screen_drift"
+ERR_UNSAFE_BLOCKED    = "unsafe_action_blocked"
+ERR_MAX_STEPS         = "max_steps_exceeded"
+ERR_TIMEOUT           = "task_timeout"
+ERR_NO_LLM_KEY        = "llm_key_missing"
 
-# Screen resolution — change these if you are not on an S22+ (1080x2340).
-DEVICE_WIDTH  = int(os.environ.get("DEVICE_WIDTH",  "1080"))
-DEVICE_HEIGHT = int(os.environ.get("DEVICE_HEIGHT", "2340"))
+logging.basicConfig(level=logging.DEBUG if DEBUG else logging.WARNING, format="[%(levelname)s] %(message)s")
+log = logging.getLogger("imprint")
 
-# ── ADB ───────────────────────────────────────────────────────────────────────
+# ── Database ──────────────────────────────────────────────────────────────────
 
-def _adb_connect_once():
-    """Single attempt to (re)connect ADB and forward CDP port."""
-    subprocess.run(f"adb connect localhost:{ADB_PORT}",
-                   shell=True, capture_output=True, timeout=8)
-    subprocess.run(f"{ADB} forward tcp:9222 localabstract:chrome_devtools_remote",
-                   shell=True, capture_output=True, timeout=8)
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS plans (
+            id                   TEXT PRIMARY KEY,
+            template             TEXT NOT NULL,
+            intent_vec           TEXT NOT NULL,
+            steps                TEXT NOT NULL,
+            param_slots          TEXT DEFAULT '[]',
+            context              TEXT,
+            trusted              INTEGER DEFAULT 0,
+            confirm_count        INTEGER DEFAULT 0,
+            hits                 INTEGER DEFAULT 0,
+            failures             INTEGER DEFAULT 0,
+            consecutive_failures INTEGER DEFAULT 0,
+            created_at           TEXT,
+            last_used            TEXT,
+            last_result          TEXT
+        );
+        CREATE TABLE IF NOT EXISTS step_log (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts             TEXT,
+            plan_id        TEXT,
+            step_num       INTEGER,
+            action         TEXT,
+            target         TEXT,
+            success        INTEGER,
+            screen_changed INTEGER,
+            error          TEXT,
+            duration_ms    INTEGER
+        );
+        CREATE TABLE IF NOT EXISTS task_log (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts          TEXT,
+            intent      TEXT,
+            template    TEXT,
+            source      TEXT,
+            plan_id     TEXT,
+            similarity  REAL,
+            success     INTEGER,
+            tokens_used INTEGER DEFAULT 0,
+            duration_ms INTEGER DEFAULT 0,
+            steps_taken INTEGER DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS queue (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts         TEXT,
+            intent     TEXT NOT NULL,
+            dry_run    INTEGER DEFAULT 0,
+            status     TEXT DEFAULT 'pending',
+            result     TEXT,
+            error      TEXT,
+            processed_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS app_cache (
+            package    TEXT PRIMARY KEY,
+            name       TEXT,
+            updated_at TEXT
+        );
+    """)
+    # WAL mode: faster writes, safe for concurrent readers (OpenClaw dispatcher)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    # Indexes for query performance
+    conn.executescript("""
+        CREATE INDEX IF NOT EXISTS idx_plans_last_used ON plans(last_used DESC);
+        CREATE INDEX IF NOT EXISTS idx_plans_trusted   ON plans(trusted, consecutive_failures);
+        CREATE INDEX IF NOT EXISTS idx_task_log_ts     ON task_log(ts DESC);
+        CREATE INDEX IF NOT EXISTS idx_step_log_plan   ON step_log(plan_id);
+        CREATE INDEX IF NOT EXISTS idx_queue_status    ON queue(status, id);
+    """)
+    conn.commit()
+    return conn
 
-def check_connected():
-    """Return True if ADB shows our localhost device online."""
-    try:
-        r = subprocess.run("adb devices", shell=True, capture_output=True,
-                           text=True, timeout=5)
-        return "device" in r.stdout and "localhost" in r.stdout
-    except Exception:
-        return False
+# ── Param Extraction ──────────────────────────────────────────────────────────
 
-def ensure_connected(retries=None, backoff=2.0):
-    """
-    Guarantee ADB is live before any command.
+# Param patterns: (regex, slot_name, keep_in_template)
+# keep=False → replace match with {slot} so "msg Mom" and "msg Dad" share same template
+# keep=True  → leave in template (used when value IS the distinguishing feature)
+PARAM_PATTERNS = [
+    # Quoted string → {message}
+    (re.compile(r'"([^"]+)"'),                                               "message", False),
+    (re.compile(r"'([^']+)'"),                                               "message", False),
+    # "saying X" / "with message X" → {message}  (must come before contact)
+    (re.compile(r'\b(?:saying|with message|with text)\s+(.+)$', re.I),    "message", False),
+    # Contact after action verb — captures Title Case AND lowercase names
+    # Stops at prepositions (on, via, in, at, through) to avoid "Mom on WhatsApp" → "Mom on"
+    # Examples: "message mom", "call John", "text Dr Smith"
+    (re.compile(r'\b(?:message|call|text|dm|email)\s+((?:Dr\.?\s+)?\w+(?:\s+\w+)??)(?=\s+(?:on|via|in|at|through|using|with)|\s+saying|\s+with\s+|$)', re.I), "contact", False),
+    # App name after open/launch/start (keep=False → becomes {app} in template)
+    (re.compile(r'\b(?:open|launch|start|close|switch to)\s+(\w+)', re.I), "app", False),
+]
 
-    Why this exists: adbd on Android often binds to the WiFi interface even
-    for localhost connections. When the phone leaves WiFi (or WiFi drops
-    briefly), the TCP socket dies — even though Termux and adbd are both
-    on the same device. This function detects the dead socket and reconnects
-    before every ADB operation so callers never see a stale connection.
+def extract_params(intent):
+    """Strip variable content → (template, params_dict)."""
+    text = intent.strip()
+    params = {}
+    counts = Counter()
+    for pattern, slot, keep in PARAM_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            val = m.group(1).strip()
+            counts[slot] += 1
+            key = slot if counts[slot] == 1 else f"{slot}{counts[slot]}"
+            params[key] = val
+            if not keep:
+                text = text[:m.start(1)] + "{" + key + "}" + text[m.end(1):]
+    return text.strip(), params
 
-    Returns True if connected, False if all retries exhausted.
-    """
-    if retries is None:
-        retries = ADB_RETRIES
-    if check_connected():
-        return True
-    for attempt in range(1, retries + 1):
-        print(f"ADB: reconnecting (attempt {attempt}/{retries})...")
-        try:
-            _adb_connect_once()
-        except Exception:
-            pass
-        if check_connected():
-            print(f"ADB: reconnected to localhost:{ADB_PORT}")
-            return True
-        if attempt < retries:
-            time.sleep(backoff * attempt)
-    print(f"ADB: could not reconnect after {retries} attempts")
-    return False
+def _sub(val, params):
+    """Recursively substitute {slot} placeholders in strings, dicts, and lists."""
+    if isinstance(val, str):
+        for slot, rep in params.items():
+            val = val.replace("{" + slot + "}", rep)
+        return val
+    elif isinstance(val, dict):
+        return {k: _sub(v, params) for k, v in val.items()}
+    elif isinstance(val, list):
+        return [_sub(v, params) for v in val]
+    return val
 
-def reconnect():
-    """Legacy alias — prefer ensure_connected() for new code."""
-    ensure_connected()
-    print(f"ADB: connected to localhost:{ADB_PORT}, CDP forwarded")
+def hydrate(steps, params):
+    """Replace {slot} placeholders in steps with actual param values."""
+    if not params:
+        return steps
+    return [_sub(step, params) if isinstance(step, dict) else step for step in steps]
 
-# ── Screenshot ────────────────────────────────────────────────────────────────
+# ── Similarity Engine ─────────────────────────────────────────────────────────
 
-def screenshot():
-    """Capture screen via ADB. Works on any visible app."""
-    ensure_connected()
-    subprocess.run(f"{ADB} shell screencap -p {SDCARD_SCREEN}",
-                   shell=True, capture_output=True)
-    subprocess.run(f"{ADB} pull {SDCARD_SCREEN} {LOCAL_SCREEN}",
-                   shell=True, capture_output=True)
-    with open(LOCAL_SCREEN, "rb") as f:
-        return base64.b64encode(f.read()).decode()
-
-def screenshot_and_save(path="/sdcard/DCIM/Screenshots/wrangle.png"):
-    """Save screenshot to Gallery for human inspection."""
-    subprocess.run(f"{ADB} shell screencap -p {path}", shell=True)
-    subprocess.run(
-        f"{ADB} shell am broadcast "
-        f"-a android.intent.action.MEDIA_SCANNER_SCAN_FILE "
-        f"-d file:///{path}",
-        shell=True, capture_output=True
-    )
-    print(f"Saved to Gallery: {path}")
-
-# ── agent-browser ─────────────────────────────────────────────────────────────
-
-def snapshot(interactive_only=True):
-    flag = "-i" if interactive_only else ""
-    result = subprocess.run(
-        f"{AB} snapshot {flag}",
-        shell=True, capture_output=True, text=True, timeout=15
-    )
-    return result.stdout.strip()
-
-def browser_action(action, **kwargs):
-    if action == "open":
-        cmd = f"{AB} open {kwargs['url']}"
-    elif action == "click":
-        cmd = f"{AB} click {kwargs['ref']}"
-    elif action == "fill":
-        cmd = f'{AB} fill {kwargs["ref"]} "{kwargs["text"]}"'
-    elif action == "press":
-        cmd = f"{AB} press {kwargs['key']}"
-    elif action == "scroll":
-        cmd = f"{AB} scroll {kwargs.get('direction','down')} {kwargs.get('px', 500)}"
-    elif action == "back":
-        cmd = f"{AB} back"
-    elif action == "screenshot":
-        cmd = f"{AB} screenshot {kwargs.get('path','~/browser.png')}"
-    elif action == "get":
-        cmd = f"{AB} get {kwargs['what']} {kwargs.get('ref','')}"
-    else:
-        cmd = f"{AB} {action}"
-
-    result = subprocess.run(cmd, shell=True, capture_output=True,
-                            text=True, timeout=20)
-    return result.stdout.strip() or result.stderr.strip()
-
-# ── App Control ───────────────────────────────────────────────────────────────
-
-# Known app aliases. Samsung-specific entries (camera, gallery) fail on non-Samsung devices.
-# Use list_apps()/find_package() to discover components on other hardware.
-APPS = {
-    "chrome":   "com.android.chrome/com.google.android.apps.chrome.Main",
-    "whatsapp": "com.whatsapp/com.whatsapp.HomeActivity",
-    "settings": "com.android.settings/.Settings",
-    "spotify":  "com.spotify.music/com.spotify.music.MainActivity",
-    "youtube":  "com.google.android.youtube/com.google.android.youtube.app.honeycomb.Shell$HomeActivity",
-    "telegram": "org.telegram.messenger/org.telegram.messenger.DefaultIcon",
-    "camera":   "com.sec.android.app.camera/com.sec.android.app.camera.Camera",       # Samsung only
-    "gallery":  "com.sec.android.gallery3d/com.sec.android.gallery3d.app.GalleryActivity",  # Samsung only
-    "maps":     "com.google.android.apps.maps/com.google.android.maps.MapsActivity",
+STOPWORDS = {
+    "a","an","the","and","or","but","in","on","at","to","for","of","with",
+    "is","it","my","me","i","do","can","please","just","up","out","into","how"
 }
 
-def _resolve_launch_target(app_name):
-    """
-    Resolve app_name to a launchable component string.
-    Priority: 1) APPS alias dict  2) cached launcher components  3) monkey fallback
-    Returns (package_or_component, method_used)
-    """
-    name = app_name.lower().strip()
+SYNONYMS = {
+    "enable":"turn on",    "disable":"turn off",   "activate":"turn on",
+    "deactivate":"turn off","toggle":"switch",
+    "send":"message",      "msg":"message",         "dm":"message",     "text":"message",
+    "set":"change",        "update":"change",       "modify":"change",  "edit":"change",
+    "open":"launch",       "start":"launch",        "run":"launch",     "close":"stop",
+    "show":"display",      "view":"display",        "see":"display",
+    "photo":"picture",     "pic":"picture",         "image":"picture",
+    "capture":"take",      "grab":"take",           "snap":"take",      "screenshot":"picture",
+    "wifi":"wireless",     "wi-fi":"wireless",      "bluetooth":"bt",
+    "wallpaper":"background","bg":"background",
+    "volume":"sound",      "brightness":"screen",
+    "wa":"whatsapp",       "ig":"instagram",        "fb":"facebook",
+    "prefs":"settings",    "preferences":"settings",
+    "call":"phone",        "ring":"phone",          "dial":"phone",
+}
 
-    # 1. Hardcoded aliases (fast path for common apps)
-    if name in APPS:
-        return APPS[name], "alias"
+def normalize(token):
+    return SYNONYMS.get(token, token).split()
 
-    # 2. Launcher component discovery via package manager
-    try:
-        r = subprocess.run(
-            f"{ADB} shell cmd package query-activities "
-            f"-a android.intent.action.MAIN -c android.intent.category.LAUNCHER",
-            shell=True, capture_output=True, text=True, timeout=10
-        )
-        for line in r.stdout.splitlines():
-            if name in line.lower():
-                m = re.search(r"([A-Za-z0-9_.]+/[A-Za-z0-9_.\$]+)", line)
-                if m:
-                    return m.group(1), "launcher_query"
-    except Exception:
-        pass
+def tokenize(text):
+    text = re.sub(r'["\'][^"\']*["\']', '', text)
+    text = re.sub(r'\b(?:saying|with message|with text)\s+.+$', '', text, flags=re.I)
+    tokens = []
+    for t in re.findall(r"[a-zA-Z0-9]+", text.lower()):
+        if t not in STOPWORDS and len(t) > 1:
+            tokens.extend(normalize(t))
+    return tokens
 
-    # 3. Package name match (partial) → monkey launch
-    try:
-        r = subprocess.run(
-            f"{ADB} shell pm list packages",
-            shell=True, capture_output=True, text=True, timeout=10
-        )
-        for line in r.stdout.splitlines():
-            pkg = line.replace("package:", "").strip()
-            if name in pkg.lower():
-                return pkg, "monkey"
-    except Exception:
-        pass
+def tfidf_vector(text):
+    tokens = tokenize(text)
+    counts = Counter(tokens)
+    total = sum(counts.values()) or 1
+    return {t: (c/total) * (1.0 + math.log(1 + 1/(1+c))) for t, c in counts.items()}
 
-    return app_name, "unknown"
+def cosine(v1, v2):
+    if not v1 or not v2:
+        return 0.0
+    keys = set(v1) & set(v2)
+    if not keys:
+        return 0.0
+    dot  = sum(v1[k]*v2[k] for k in keys)
+    mag1 = math.sqrt(sum(x**2 for x in v1.values()))
+    mag2 = math.sqrt(sum(x**2 for x in v2.values()))
+    return 0.0 if (mag1 == 0 or mag2 == 0) else dot/(mag1*mag2)
 
-def launch_app(app_name, url=None, wait=2):
-    """Launch app by name. Returns package string for verification."""
-    if url:
-        # URL launch — Chrome or intent
-        chrome = APPS.get("chrome", "com.android.chrome/com.google.android.apps.chrome.Main")
-        subprocess.run(
-            f'{ADB} shell am start -n {chrome} -d "{url}"',
-            shell=True, capture_output=True
-        )
-        time.sleep(wait)
-        return chrome.split("/")[0]
+def plan_id(template):
+    return hashlib.sha1(template.lower().strip().encode()).hexdigest()[:16]
 
-    target, method = _resolve_launch_target(app_name)
-    log.debug(f"launch_app: {app_name!r} → {target!r} via {method}")
+# ── Cache Search / Storage ────────────────────────────────────────────────────
 
-    if method == "monkey":
-        # package-only launch via monkey
-        subprocess.run(
-            f"{ADB} shell monkey -p {target} -c android.intent.category.LAUNCHER 1",
-            shell=True, capture_output=True
-        )
+def _plan_cols(conn):
+    return [d[0] for d in conn.execute("SELECT * FROM plans LIMIT 0").description]
+
+def search_cache(conn, intent, threshold=THRESHOLD):
+    template, _ = extract_params(intent)
+    query_vec = tfidf_vector(template)
+    rows = conn.execute(
+        "SELECT * FROM plans WHERE consecutive_failures < ? ORDER BY last_used DESC",
+        (MAX_FAILURES,)
+    ).fetchall()
+    if not rows:
+        return None, 0.0
+
+    cols = _plan_cols(conn)
+    best, best_sim = None, 0.0
+
+    for row in rows:
+        p = dict(zip(cols, row))
+        sim = cosine(query_vec, json.loads(p["intent_vec"]))
+
+        if p["last_used"]:
+            try:
+                days = (datetime.now() - datetime.fromisoformat(p["last_used"])).days
+                if days > DECAY_DAYS:
+                    sim = max(0.0, sim - min(0.15, (days - DECAY_DAYS) * 0.005))
+            except Exception:
+                pass
+
+        total = p["hits"] + p["failures"]
+        if total > 0:
+            sim *= (0.85 + 0.15 * (p["hits"] / total))
+
+        if sim > best_sim:
+            best_sim, best = sim, p
+
+    if best and best_sim >= threshold:
+        return best, best_sim
+    return None, best_sim
+
+def store_or_confirm(conn, intent, steps, param_slots=None, context=None):
+    """Store new plan as PENDING or increment confirm_count. Returns (pid, newly_trusted)."""
+    template, _ = extract_params(intent)
+    pid = plan_id(template)
+    vec = tfidf_vector(template)
+    now = datetime.now().isoformat()
+    slots = json.dumps(param_slots or [])
+
+    existing = conn.execute("SELECT confirm_count, trusted FROM plans WHERE id=?", (pid,)).fetchone()
+    if existing:
+        new_count = existing[0] + 1
+        newly_trusted = (not existing[1]) and (new_count >= N_CONFIRM)
+        conn.execute("""
+            UPDATE plans SET confirm_count=?, trusted=?,
+                hits=hits+1, consecutive_failures=0,
+                last_used=?, last_result='success', steps=?, param_slots=?
+            WHERE id=?
+        """, (new_count, 1 if (newly_trusted or existing[1]) else 0, now, json.dumps(steps), slots, pid))
     else:
-        subprocess.run(
-            f"{ADB} shell am start -n {target}",
-            shell=True, capture_output=True
-        )
+        newly_trusted = N_CONFIRM <= 1
+        conn.execute("""
+            INSERT INTO plans (id,template,intent_vec,steps,param_slots,context,
+                trusted,confirm_count,hits,failures,consecutive_failures,created_at,last_used,last_result)
+            VALUES (?,?,?,?,?,?,?,1,1,0,0,?,?,?)
+        """, (pid, template, json.dumps(vec), json.dumps(steps), slots, context,
+              1 if newly_trusted else 0, now, now, "success"))
+    conn.commit()
+    return pid, newly_trusted
 
-    time.sleep(wait)
-    return target.split("/")[0]
+def mark_success(conn, pid):
+    conn.execute("""
+        UPDATE plans SET
+            hits=hits+1, confirm_count=confirm_count+1,
+            consecutive_failures=0,
+            trusted=CASE WHEN confirm_count+1 >= ? THEN 1 ELSE trusted END,
+            last_used=?, last_result='success'
+        WHERE id=?
+    """, (N_CONFIRM, datetime.now().isoformat(), pid))
+    conn.commit()
 
-def list_apps():
-    """Return launchable apps as structured JSON-friendly records."""
-    # Try launcher-resolvable packages first
-    cmd = (
-        f"{ADB} shell cmd package query-activities "
-        f"-a android.intent.action.MAIN -c android.intent.category.LAUNCHER"
-    )
-    r = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+def mark_failure(conn, pid, reason=""):
+    conn.execute("""
+        UPDATE plans SET failures=failures+1, consecutive_failures=consecutive_failures+1,
+            last_used=?, last_result=? WHERE id=?
+    """, (datetime.now().isoformat(), f"failure: {reason}"[:200], pid))
+    conn.commit()
+    row = conn.execute("SELECT consecutive_failures, template FROM plans WHERE id=?", (pid,)).fetchone()
+    if row and row[0] >= MAX_FAILURES:
+        print(f"⚠️  '{row[1]}' failed {row[0]}x — evicting")
+        conn.execute("DELETE FROM plans WHERE id=?", (pid,))
+        conn.commit()
 
-    packages = set()
-    if r.returncode == 0 and r.stdout.strip():
-        for line in r.stdout.splitlines():
-            line = line.strip()
-            m = re.search(r'([A-Za-z0-9_$.]+/[A-Za-z0-9_$.\$]+)', line)
-            if m:
-                component = m.group(1)
-                pkg = component.split('/')[0]
-                packages.add(pkg)
-            else:
-                m2 = re.search(r'packageName=([A-Za-z0-9_$.]+)', line)
-                if m2:
-                    packages.add(m2.group(1))
+def log_step(conn, pid, num, action, target, success, screen_changed, error, ms):
+    conn.execute("""
+        INSERT INTO step_log (ts,plan_id,step_num,action,target,success,screen_changed,error,duration_ms)
+        VALUES (?,?,?,?,?,?,?,?,?)
+    """, (datetime.now().isoformat(), pid, num, action, str(target)[:200],
+          success, screen_changed, str(error or "")[:200], ms))
+    conn.commit()
 
-    # Fallback to all packages if launcher query is unhelpful
-    if not packages:
-        r2 = subprocess.run(f"{ADB} shell pm list packages", shell=True, capture_output=True, text=True)
-        for line in r2.stdout.splitlines():
-            line = line.strip()
-            if line.startswith('package:'):
-                packages.add(line.split(':', 1)[1])
+def log_task(conn, intent, template, source, pid, sim, success, tokens, ms, steps):
+    conn.execute("""
+        INSERT INTO task_log (ts,intent,template,source,plan_id,similarity,success,tokens_used,duration_ms,steps_taken)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (datetime.now().isoformat(), intent, template, source, pid, sim, success, tokens, ms, steps))
+    conn.commit()
 
-    app_records = []
-    for pkg in sorted(packages):
-        simple_label = pkg.split('.')[-1].replace('_', ' ')
-        app_records.append({
-            'label': simple_label,
-            'package': pkg,
-            'launchable': True,
-            'known_aliases': [alias for alias, target in APPS.items() if target.startswith(pkg + '/') or target == pkg],
-        })
+# ── App Cache ─────────────────────────────────────────────────────────────────
 
-    return {'count': len(app_records), 'apps': app_records}
+KNOWN_APPS = {
+    "com.whatsapp":"whatsapp", "com.instagram.android":"instagram",
+    "com.facebook.katana":"facebook", "com.twitter.android":"twitter",
+    "com.google.android.youtube":"youtube", "com.google.android.gm":"gmail",
+    "com.google.android.apps.maps":"maps", "com.android.settings":"settings",
+    "com.android.chrome":"chrome", "com.spotify.music":"spotify",
+    "com.snapchat.android":"snapchat", "com.netflix.mediaclient":"netflix",
+    "com.discord":"discord", "com.reddit.frontpage":"reddit",
+    "com.google.android.dialer":"phone", "com.google.android.contacts":"contacts",
+    "com.samsung.android.dialer":"phone", "com.samsung.android.messaging":"messages",
+}
 
-
-def find_package(name):
-    """Return likely package matches for a search term as JSON-friendly data."""
-    search = (name or '').strip().lower()
-    apps = list_apps().get('apps', [])
-    matches = []
-    for app in apps:
-        hay = ' '.join([app.get('label', ''), app.get('package', ''), ' '.join(app.get('known_aliases', []))]).lower()
-        if search in hay:
-            matches.append(app)
-
-    # Fallback: pull raw package list in Python, no shell grep (safe on all envs)
-    if not matches and search:
-        try:
-            r = subprocess.run(f"{ADB} shell pm list packages",
-                               shell=True, capture_output=True, text=True, timeout=10)
-            for line in r.stdout.splitlines():
-                pkg = line.replace('package:', '').strip()
-                if pkg and search in pkg.lower():
-                    matches.append({'label': pkg.split('.')[-1], 'package': pkg,
-                                    'launchable': True, 'known_aliases': []})
-        except Exception:
-            pass
-
-    return {'query': name, 'count': len(matches), 'matches': matches[:30]}
-
-# ── ADB Input ────────────────────────────────────────────────────────────────
-
-def tap(x, y, delay=0.8):
-    subprocess.run(f"{ADB} shell input tap {x} {y}", shell=True)
-    time.sleep(delay)
-
-def swipe(x1, y1, x2, y2, ms=300, delay=0.5):
-    subprocess.run(f"{ADB} shell input swipe {x1} {y1} {x2} {y2} {ms}", shell=True)
-    time.sleep(delay)
-
-def scroll_down(amount=800):
-    cx = DEVICE_WIDTH // 2
-    swipe(cx, int(DEVICE_HEIGHT * 0.60), cx, int(DEVICE_HEIGHT * 0.60) - amount)
-
-def scroll_up(amount=800):
-    cx = DEVICE_WIDTH // 2
-    swipe(cx, int(DEVICE_HEIGHT * 0.26), cx, int(DEVICE_HEIGHT * 0.26) + amount)
-
-def check_adbkeyboard():
-    """Warn if ADBKeyboard is not the active IME."""
-    r = subprocess.run(f"{ADB} shell settings get secure default_input_method",
-                       shell=True, capture_output=True, text=True)
-    ime = r.stdout.strip()
-    if "adbkeyboard" not in ime.lower():
-        print(f"⚠️  ADBKeyboard not active (current IME: {ime}). "
-              "Run: adb shell ime set com.android.adbkeyboard/.AdbIME")
-        return False
-    return True
-
-def type_text(text, delay=0.3):
-    """Type text via ADBKeyboard broadcast (handles unicode, spaces, special chars)."""
-    # Pass args as a list — avoids shell quoting entirely, handles quotes/spaces in text safely.
-    adb_parts = ADB.split()
-    r = subprocess.run(
-        adb_parts + ["shell", "am", "broadcast", "-a", "ADB_INPUT_TEXT", "--es", "msg", text],
-        capture_output=True, text=True
-    )
-    if r.returncode != 0 or "result=0" in r.stdout:
-        print("⚠️  ADBKeyboard broadcast failed — is ADBKeyboard installed and active?")
-        check_adbkeyboard()
-    time.sleep(delay)
-
-def keyevent(key, delay=0.3):
-    subprocess.run(f"{ADB} shell input keyevent {key}", shell=True)
-    time.sleep(delay)
-
-def press_back():  keyevent("KEYCODE_BACK")
-def press_home():  keyevent("KEYCODE_HOME")
-def press_enter(): keyevent("KEYCODE_ENTER")
-
-# ── UI Parsing / Ranking ──────────────────────────────────────────────────────
-
-def parse_bounds(bounds):
-    if not bounds:
-        return None
-    try:
-        coords = bounds.replace("][", ",").replace("[", "").replace("]", "")
-        x1, y1, x2, y2 = map(int, coords.split(","))
-        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-        return {
-            "x1": x1, "y1": y1, "x2": x2, "y2": y2,
-            "cx": cx, "cy": cy,
-            "w": max(0, x2 - x1),
-            "h": max(0, y2 - y1),
-        }
-    except Exception:
-        return None
-
-def clean_label(*parts):
-    for part in parts:
-        if part:
-            value = re.sub(r"\s+", " ", part).strip()
-            if value:
-                return value
-    return ""
-
-def element_score(el, task=""):
-    score = 0.0
-    label = el.get("label", "").lower()
-    resource = el.get("resource_id", "").lower()
-    cls = el.get("class", "")
-    clickable = el.get("clickable", False)
-    checkable = el.get("checkable", False)
-    editable = el.get("editable", False)
-    selected = el.get("selected", False)
-
-    if clickable:
-        score += 5
-    if editable:
-        score += 5
-    if checkable:
-        score += 3
-    if selected:
-        score += 1
-    if label:
-        score += min(4, max(1, len(label) / 12))
-    if resource:
-        score += 1
-
-    if "button" in cls or "imagebutton" in cls:
-        score += 2
-    if "edittext" in cls:
-        score += 3
-    if "switch" in cls or "checkbox" in cls:
-        score += 2
-
-    # De-prioritize giant layout containers
-    area = el.get("area", 0)
-    if area > 700_000:
-        score -= 4
-    elif area > 300_000:
-        score -= 2
-
-    # Favor lower half slightly for common actions, but not too much
-    cy = el.get("center", [DEVICE_WIDTH // 2, DEVICE_HEIGHT // 2])[1]
-    if 700 <= cy <= 2200:
-        score += 0.5
-
-    if task:
-        task_words = {w for w in re.findall(r"[a-zA-Z0-9]+", task.lower()) if len(w) > 2}
-        if task_words:
-            hay = f"{label} {resource}".lower()
-            overlaps = sum(1 for w in task_words if w in hay)
-            score += overlaps * 2.5
-
-    return round(score, 2)
-
-def collect_ui_elements(task=""):
-    """Return ranked visible UI elements plus a stable screen hash."""
-    # Wake screen first — UIAutomator returns empty on a locked/sleeping display
-    subprocess.run(f"{ADB} shell input keyevent KEYCODE_WAKEUP",
-                   shell=True, capture_output=True)
-    subprocess.run(
-        f"{ADB} shell uiautomator dump /sdcard/ui.xml",
-        shell=True, capture_output=True, timeout=10
-    )
-    local_xml = os.path.expanduser("~/ui.xml")
-    subprocess.run(
-        f"{ADB} pull /sdcard/ui.xml {local_xml}",
-        shell=True, capture_output=True, timeout=10
-    )
-
-    try:
-        tree = ET.parse(local_xml)
-        root = tree.getroot()
-    except Exception as e:
-        return {
-            "screen_hash": "parse_error",
-            "elements": [],
-            "raw_count": 0,
-            "error": f"XML parse error: {e}",
-        }
-
-    elements = []
-    raw_count = 0
-    for idx, node in enumerate(root.iter("node"), start=1):
-        raw_count += 1
-        cls = node.get("class", "").split(".")[-1]
-        text = node.get("text", "").strip()
-        desc = node.get("content-desc", "").strip()
-        resource = node.get("resource-id", "").split("/")[-1]
-        package = node.get("package", "")
-        bounds = node.get("bounds", "")
-        clickable = node.get("clickable", "false") == "true"
-        enabled = node.get("enabled", "false") == "true"
-        focusable = node.get("focusable", "false") == "true"
-        editable = node.get("editable", "false") == "true"
-        checkable = node.get("checkable", "false") == "true"
-        checked = node.get("checked", "false") == "true"
-        selected = node.get("selected", "false") == "true"
-        scrollable = node.get("scrollable", "false") == "true"
-
-        if not enabled:
-            continue
-
-        label = clean_label(text, desc, resource)
-        if not label and not clickable and not editable and not checkable:
-            continue
-
-        parsed = parse_bounds(bounds)
-        if not parsed:
-            continue
-
-        element = {
-            "id": idx,
-            "label": label,
-            "class": cls,
-            "resource_id": resource,
-            "content_desc": desc,
-            "package": package,
-            "clickable": clickable,
-            "focusable": focusable,
-            "editable": editable,
-            "checkable": checkable,
-            "checked": checked,
-            "selected": selected,
-            "scrollable": scrollable,
-            "bounds": bounds,
-            "center": [parsed["cx"], parsed["cy"]],
-            "area": parsed["w"] * parsed["h"],
-        }
-        element["score"] = element_score(element, task)
-        elements.append(element)
-
-    elements.sort(key=lambda e: e["score"], reverse=True)
-    ranked = elements[:MAX_UI_ELEMENTS]
-
-    # Normalized for stable screen hash — uses only content fields, not coords
-    normalized = [
-        {"label": e["label"], "class": e["class"],
-         "resource_id": e.get("resource_id",""), "clickable": e["clickable"]}
-        for e in ranked
-    ]
-    screen_hash = hashlib.sha1(json.dumps(normalized, sort_keys=True).encode()).hexdigest()[:12]
-
-    return {
-        "screen_hash": screen_hash,
-        "elements": ranked,
-        "raw_count": raw_count,
-        "error": None,
-    }
-
-def render_ui_text(state):
-    elements = state.get("elements", [])
-    if not elements:
-        return "No elements found"
-
-    lines = []
-    for el in elements:
-        flags = []
-        if el["clickable"]:
-            flags.append("click")
-        if el["editable"]:
-            flags.append("edit")
-        if el["checkable"]:
-            flags.append("check")
-        if el["checked"]:
-            flags.append("checked")
-        if el["selected"]:
-            flags.append("selected")
-        if el["scrollable"]:
-            flags.append("scroll")
-        flag_str = ",".join(flags) if flags else "plain"
-        lines.append(
-            f'#{el["id"]} [{el["class"].upper()}|{flag_str}] '
-            f'"{el["label"]}" center=({el["center"][0]},{el["center"][1]}) bounds={el["bounds"]}'
-        )
-    return "\n".join(lines)
-
-def ui_dump(task=""):
-    """Backward-compatible text dump, now ranked and compact."""
-    state = collect_ui_elements(task=task)
-    if state.get("error"):
-        return state["error"]
-    return render_ui_text(state)
-
-def get_phone_state(task=""):
-    state = collect_ui_elements(task=task)
-    if state.get("error"):
-        return {
-            "screen_hash": state.get("screen_hash", "error"),
-            "screen_summary": state["error"],
-            "elements": [],
-            "raw_count": state.get("raw_count", 0),
-        }
-
-    elements = []
-    for el in state["elements"]:
-        role = "input" if el["editable"] else "button" if el["clickable"] else el["class"].lower()
-        cx, cy = el["center"]
-        elements.append({
-            # Identity — IMPRINT resolver targets by these fields
-            "id":           el["id"],
-            "text":         el.get("resource_id","") and el["label"] or el["label"],
-            "label":        el["label"],
-            "content-desc": el.get("content_desc",""),
-            "resource-id":  el.get("resource_id",""),
-            "class":        el["class"],
-            # State flags
-            "role":         role,
-            "clickable":    el["clickable"],
-            "editable":     el["editable"],
-            "focusable":    el.get("focusable", False),
-            "focused":      el.get("focused", False),
-            "enabled":      el.get("enabled", True),
-            "scrollable":   el.get("scrollable", False),
-            "checkable":    el["checkable"],
-            "checked":      el["checked"],
-            "selected":     el["selected"],
-            # Position — absolute + normalized
-            "x":            cx,
-            "y":            cy,
-            "x_norm":       round(cx / DEVICE_WIDTH,  4),
-            "y_norm":       round(cy / DEVICE_HEIGHT, 4),
-            "center":       el["center"],
-            "bounds":       el["bounds"],
-            "score":        el["score"],
-        })
-
-    fg_app = ""
+def refresh_apps(conn):
+    print("  Refreshing installed app list...")
     try:
         r = subprocess.run(
-            f"{ADB} shell dumpsys activity | grep mResumedActivity",
-            shell=True, capture_output=True, text=True, timeout=5
+            f"adb -s localhost:{ADB_PORT} shell pm list packages",
+            shell=True, capture_output=True, text=True, timeout=15
         )
-        m = re.search(r'([A-Za-z0-9_.]+)/[A-Za-z0-9_.]+', r.stdout)
-        if m:
-            fg_app = m.group(1)
-    except Exception:
-        pass
+        pkgs = [l.replace("package:", "").strip() for l in r.stdout.splitlines() if l.startswith("package:")]
+        now = datetime.now().isoformat()
+        for pkg in pkgs:
+            name = KNOWN_APPS.get(pkg, pkg.split(".")[-1].lower())
+            conn.execute("INSERT OR REPLACE INTO app_cache VALUES (?,?,?)", (pkg, name, now))
+        conn.commit()
+        print(f"  ✅ {len(pkgs)} apps cached")
+    except Exception as e:
+        print(f"  ⚠️  App refresh failed: {e}")
 
-    summary = f"{len(elements)} ranked elements from {state['raw_count']} raw UI nodes"
-    return {
-        "screen_hash": state["screen_hash"],
-        "foreground_app": fg_app,
-        "screen_summary": summary,
-        "elements": elements,
-        "raw_count": state["raw_count"],
+def resolve_app(conn, name):
+    row = conn.execute(
+        "SELECT package FROM app_cache WHERE name=? OR package=? LIMIT 1",
+        (name.lower(), name.lower())
+    ).fetchone()
+    return row[0] if row else name
+
+# ── Element Resolver ──────────────────────────────────────────────────────────
+
+def resolve_element(elements, target):
+    """Find best UI element for target spec (str or {text,id,desc} dict)."""
+    if not elements or not target:
+        return None
+    if isinstance(target, str):
+        target = {"text": target}
+
+    candidates = []
+    for el in elements:
+        score = 0
+        t = (el.get("text","") or "").lower()
+        d = (el.get("content-desc","") or "").lower()
+        i = (el.get("resource-id","") or "").lower()
+
+        if "text" in target and target["text"].lower() in t:
+            score += 10 + (10 if t == target["text"].lower() else 0)
+        if "desc" in target and target["desc"].lower() in d:
+            score += 8
+        if "id" in target and target["id"].lower() in i:
+            score += 12
+        if score > 0 and el.get("clickable"):
+            score += 5
+        if score > 0:
+            candidates.append((score, el))
+
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda x: x[0], reverse=True)[0][1]
+
+# ── Wrangle Bridge ───────────────────────────────────────────────────────────
+
+def pc_get_state(task=""):
+    try:
+        r = subprocess.run([PYTHON, WRANGLE, "get_state", "--task", task],
+                           capture_output=True, text=True, timeout=20)
+        state = json.loads(r.stdout.strip())
+        # state_signature: semantic fingerprint, more stable than screen_hash alone.
+        # Uses fields wrangle actually returns: foreground_app, element labels, element ids.
+        # "label" is the primary text field wrangle exports; falls back to "text" if present.
+        if "elements" in state and "error" not in state:
+            top_labels = []
+            top_ids    = []
+            for e in state["elements"][:6]:
+                lbl = e.get("label") or e.get("text","") or e.get("content-desc","")
+                if lbl: top_labels.append(lbl.strip()[:30])
+                eid_raw = e.get("resource-id","") or e.get("id","")
+                eid = str(eid_raw).split("/")[-1] if eid_raw is not None else ""
+                if eid: top_ids.append(eid[:20])
+            sig_raw = f"{state.get('foreground_app','')}|{'|'.join(top_labels[:4])}|{'|'.join(top_ids[:4])}"
+            state["state_signature"] = hashlib.md5(sig_raw.encode()).hexdigest()[:12]
+        else:
+            state.setdefault("state_signature", "unknown")
+        return state
+    except Exception as e:
+        return {"error": str(e), "elements": [], "screen_hash": "error",
+                "foreground_app": "unknown", "state_signature": "error"}
+
+def pc_do_action(action):
+    try:
+        r = subprocess.run([PYTHON, WRANGLE, "do_action", "--json", json.dumps(action)],
+                           capture_output=True, text=True, timeout=20)
+        return json.loads(r.stdout.strip())
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+def keyboard_open():
+    try:
+        r = subprocess.run(
+            f"adb -s localhost:{ADB_PORT} shell dumpsys input_method",
+            shell=True, capture_output=True, text=True, timeout=8
+        )
+        return "mInputShown=true" in r.stdout
+    except Exception:
+        return False
+
+def input_focused(elements):
+    return any(
+        el.get("focused") and "EditText" in el.get("class","")
+        for el in elements
+    )
+
+# ── Step Execution ────────────────────────────────────────────────────────────
+
+def execute_one_step(step, elements, intent=""):
+    """Run one step. Returns structured result dict."""
+    action = step.get("action", "")
+    t0 = time.time()
+
+    target_spec = step.get("target")
+    resolved_el = resolve_element(elements, target_spec) if target_spec else None
+
+    state_before = pc_get_state(task=intent)
+    hash_before  = state_before.get("screen_hash", "")
+
+    result = {
+        "action": action, "target": str(target_spec or step.get("reason","")),
+        "success": False, "screen_changed": False,
+        "error": None, "hash_before": hash_before, "hash_after": hash_before, "duration_ms": 0,
     }
 
-# ── Native Cerebras Reasoning ─────────────────────────────────────────────────
+    payload = dict(step)
+    if resolved_el:
+        payload["x"] = resolved_el.get("x", step.get("x", 540))
+        payload["y"] = resolved_el.get("y", step.get("y", 1170))
+        log.debug(f"Resolved '{target_spec}' → ({payload['x']},{payload['y']}) text='{resolved_el.get('text','')}'")
 
-def ask_cerebras_native(task, phone_state, history, loop_state=None):
-    loop_state = loop_state or {}
-    ui_text = render_ui_text(phone_state)
-    stuck_hint = ""
-    if loop_state.get("repeat_count", 0) >= 2:
-        stuck_hint = (
-            f"\nWarning: the screen has not changed for {loop_state['repeat_count']} consecutive checks. "
-            f"The last action was {json.dumps(loop_state.get('last_action', {}))}. "
-            "Choose a DIFFERENT action unless repeating is clearly necessary."
+    if action == "type" and not input_focused(elements) and not keyboard_open():
+        log.debug("No focused input before type — proceeding anyway")
+
+    exec_r = pc_do_action(payload)
+    result["duration_ms"] = int((time.time() - t0) * 1000)
+
+    if not exec_r.get("ok"):
+        result["error"] = exec_r.get("error", "unknown")
+        return result
+
+    time.sleep(step.get("delay", 1.0))
+
+    if action in ("tap","swipe","scroll","launch","back","keyevent"):
+        state_after = pc_get_state(task=intent)
+        hash_after  = state_after.get("screen_hash", "")
+        result["hash_after"]      = hash_after
+        result["screen_changed"]  = bool(hash_after and hash_after != hash_before and hash_after != "error")
+        if action == "tap" and not result["screen_changed"]:
+            log.debug(f"Tap at step — screen unchanged (may be normal)")
+
+    result["success"] = True
+    return result
+
+DESTRUCTIVE_ACTIONS = {
+    "delete", "remove", "uninstall", "reset", "clear", "format",
+    "purchase", "buy", "pay", "checkout",
+    "send",   # confirmed in context — message sending is OK, but flag for aware execution
+    "submit", "post", "publish", "share",
+    "call",   # actually dials a number
+}
+
+DESTRUCTIVE_PATTERNS = re.compile(
+    r"\b(delete|remove|uninstall|factory reset|wipe|purchase|buy|pay|submit|post|publish)\b",
+    re.I
+)
+
+def is_destructive(intent):
+    """Return True if the intent looks like it could cause irreversible side effects."""
+    return bool(DESTRUCTIVE_PATTERNS.search(intent))
+
+def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
+                  task_deadline=None, confirmed=False, interactive=True):
+    """
+    Execute steps with retry, mid-task replan, timeout, and max-steps guard.
+
+    confirmed=True   — skip destructive safety prompt (OpenClaw dispatcher mode)
+    interactive=True — prompt human via stdin if not confirmed (default for CLI use)
+                       set False when called from dispatch context to fail-safe instead
+
+    Returns (success, drift, error, steps_taken, step_results)
+    """
+    if params:
+        steps = hydrate(steps, params)
+
+    # Safety gate — block or prompt on destructive intents
+    if is_destructive(intent) and not confirmed:
+        print(f"  ⚠️  SAFETY: '{intent}' matches destructive action pattern.")
+        if interactive:
+            try:
+                ans = input("  Proceed? [y/N] ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                ans = "n"
+            if ans != "y":
+                return False, False, ERR_UNSAFE_BLOCKED, 0, []
+        else:
+            # Non-interactive (dispatcher) — fail safe, require explicit confirmed=True
+            return False, False, ERR_UNSAFE_BLOCKED, 0, []
+
+    step_results = []
+    steps_taken  = 0
+    deadline     = task_deadline or (time.time() + TASK_TIMEOUT)
+
+    print(f"  ⚡ Executing {len(steps)} steps...")
+
+    state    = pc_get_state(task=intent)
+    elements = state.get("elements", [])
+    init_hash = state.get("screen_hash","")
+
+    # Drift check
+    first_hash = steps[0].get("screen_hash_before") if steps else None
+    if first_hash and init_hash and init_hash != first_hash:
+        print(f"  ⚠️  Drift (expected {first_hash[:8]}, got {init_hash[:8]})")
+        return False, True, ERR_SCREEN_DRIFT, 0, []
+
+    for i, step in enumerate(steps):
+        if step.get("action") == "done":
+            break
+        if steps_taken >= MAX_STEPS:
+            return False, False, ERR_MAX_STEPS, steps_taken, step_results
+        if time.time() > deadline:
+            return False, False, ERR_TIMEOUT, steps_taken, step_results
+
+        print(f"  [{i+1}/{len(steps)}] {step.get('action')} — {step.get('reason','')}")
+
+        step_ok, last_err = False, None
+        for attempt in range(1, MAX_RETRIES + 2):
+            if attempt > 1:
+                print(f"    ↺ retry {attempt-1}/{MAX_RETRIES}...")
+                time.sleep(1.0)
+                state    = pc_get_state(task=intent)
+                elements = state.get("elements", [])
+
+            sr = execute_one_step(step, elements, intent=intent)
+            steps_taken += 1
+            step_results.append(sr)
+
+            if plan_id_str:
+                log_step(conn, plan_id_str, i+1, sr["action"], sr["target"],
+                         sr["success"], sr["screen_changed"], sr["error"], sr["duration_ms"])
+
+            if sr["success"]:
+                step_ok = True
+                if sr["screen_changed"]:
+                    state    = pc_get_state(task=intent)
+                    elements = state.get("elements", [])
+                break
+            last_err = sr["error"]
+
+        if not step_ok:
+            print(f"  ❌ Step {i+1} failed after {MAX_RETRIES} retries: {last_err}")
+
+            # Mid-task replan
+            remaining = [s for s in steps[i:] if s.get("action") != "done"]
+            if remaining and CEREBRAS_KEY:
+                print(f"  🔄 Mid-task replan for {len(remaining)} remaining steps...")
+                replan_t0 = time.time()
+                cur_state = pc_get_state(task=intent)
+                revised, r_tok, r_ms = ask_llm_replan(intent, step, cur_state, remaining)
+                if revised:
+                    print(f"  ↺ Replan: {len(revised)} revised steps")
+                    r_suc, _, r_err, r_steps, r_results = execute_steps(
+                        conn, revised, intent=intent,
+                        plan_id_str=plan_id_str, task_deadline=deadline
+                    )
+                    step_results.extend(r_results)
+                    steps_taken += r_steps
+                    if r_suc:
+                        replan_ms = int((time.time() - replan_t0) * 1000)
+                        log_task(conn, intent, "", "replan", plan_id_str, 0.0, 1,
+                                 r_tok, replan_ms, steps_taken)
+                        return True, False, None, steps_taken, step_results
+                    last_err = r_err
+
+            return False, False, f"step {i+1} ({step.get('action')}): {last_err}", steps_taken, step_results
+
+    return True, False, None, steps_taken, step_results
+
+# ── LLM Planning ─────────────────────────────────────────────────────────────
+
+PLAN_SYSTEM = """You are a planning engine for an Android phone automation agent.
+Decompose tasks into minimal abstract parameterized steps.
+RULES:
+- Use {slot} placeholders for variable content (contacts, messages, etc.)
+- Prefer element targeting via text/id/desc over raw x/y coordinates
+- Valid actions: launch, tap, type, swipe, scroll, back, keyevent, done
+- Every step needs: action, reason, delay (float seconds)
+- Always end with {"action":"done","reason":"..."}
+- Return ONLY a JSON array. No markdown. No explanation."""
+
+def ask_llm_for_plan(intent, template, params, phone_state):
+    if not CEREBRAS_KEY:
+        return None, ERR_NO_LLM_KEY, 0, 0
+
+    elements = []
+    for el in phone_state.get("elements", [])[:20]:
+        e = {}
+        if el.get("text"):         e["text"] = el["text"]
+        if el.get("resource-id"):  e["id"]   = el["resource-id"].split("/")[-1]
+        if el.get("content-desc"): e["desc"] = el["content-desc"]
+        if el.get("clickable"):    e["click"] = True
+        if el.get("x"):            e["x"], e["y"] = el["x"], el["y"]
+        if e: elements.append(e)
+
+    prompt = f"""Task: {intent}
+Template: {template}
+Params: {json.dumps(params)}
+Foreground: {phone_state.get("foreground_app","unknown")}
+UI elements: {json.dumps(elements)}
+
+Plan abstract steps using {{slot}} placeholders. Prefer element targeting.
+Example target: {{"text":"Send"}}, {{"id":"send_button"}}, {{"desc":"Search"}}"""
+
+    t0 = time.time()
+    try:
+        resp = requests.post(
+            f"{CEREBRAS_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
+            json={"model": TEXT_MODEL,
+                  "messages": [{"role":"system","content":PLAN_SYSTEM},{"role":"user","content":prompt}],
+                  "max_tokens": 1500, "temperature": 0.1},
+            timeout=30
         )
+        resp.raise_for_status()
+        ms  = int((time.time()-t0)*1000)
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        tok = resp.json().get("usage",{}).get("total_tokens",0)
+        m   = re.search(r'\[.*\]', raw, re.DOTALL)
+        if not m:
+            return None, f"No JSON array: {raw[:200]}", tok, ms
+        return json.loads(m.group(0)), None, tok, ms
+    except Exception as e:
+        return None, str(e), 0, 0
 
-    fg = phone_state.get("foreground_app", "")
-    fg_line = f"Foreground app: {fg}\n" if fg else ""
-    prompt = (
-        "You are controlling an Android app via structured UI element coordinates.\n"
-        f"Task: {task}\n"
-        f"{fg_line}"
-        f"Screen hash: {phone_state.get('screen_hash','unknown')}\n"
-        f"Raw node count: {phone_state.get('raw_count', 0)}\n"
-        f"Ranked element count: {len(phone_state.get('elements', []))}\n"
-        f"{stuck_hint}\n\n"
-        "Current ranked screen elements:\n"
-        f"{ui_text}\n\n"
-        "Rules:\n"
-        "- Prefer tapping a clearly relevant clickable element by center coordinates.\n"
-        "- If the screen seems stuck, try a different action like back or scroll.\n"
-        "- Only type when an input is likely focused or editable.\n"
-        "- Return ONLY valid JSON, no markdown.\n\n"
-        "Allowed formats:\n"
-        '{"action":"tap","x":540,"y":1200,"reason":"tapping Wi-Fi toggle","target_id":17}\n'
-        '{"action":"type","text":"hello","reason":"typing in search box"}\n'
-        '{"action":"swipe","x1":540,"y1":1400,"x2":540,"y2":600,"ms":300,"reason":"scrolling"}\n'
-        '{"action":"keyevent","key":"KEYCODE_BACK","reason":"going back"}\n'
-        '{"action":"back","reason":"going back"}\n'
-        '{"action":"scroll","direction":"down","amount":800,"reason":"scrolling"}\n'
-        '{"action":"launch","app":"settings","reason":"need settings app"}\n'
-        '{"action":"done","reason":"task complete"}'
+def ask_llm_replan(intent, failed_step, current_state, remaining_steps):
+    if not CEREBRAS_KEY:
+        return None, 0, 0
+    elements = current_state.get("elements",[])[:15]
+    prompt = f"""Task: {intent}
+Failed step: {json.dumps(failed_step)}
+Current app: {current_state.get("foreground_app","unknown")}
+Current UI: {json.dumps(elements)}
+Remaining planned: {json.dumps(remaining_steps)}
+
+Provide ONLY revised remaining steps as JSON array to complete the task from current screen."""
+    t0 = time.time()
+    try:
+        resp = requests.post(
+            f"{CEREBRAS_URL}/chat/completions",
+            headers={"Authorization": f"Bearer {CEREBRAS_KEY}", "Content-Type": "application/json"},
+            json={"model": TEXT_MODEL,
+                  "messages": [{"role":"system","content":PLAN_SYSTEM},{"role":"user","content":prompt}],
+                  "max_tokens": 1000, "temperature": 0.1},
+            timeout=20
+        )
+        resp.raise_for_status()
+        ms  = int((time.time()-t0)*1000)
+        raw = resp.json()["choices"][0]["message"]["content"].strip()
+        tok = resp.json().get("usage",{}).get("total_tokens",0)
+        m   = re.search(r'\[.*\]', raw, re.DOTALL)
+        return (json.loads(m.group(0)) if m else None), tok, ms
+    except Exception:
+        return None, 0, 0
+
+# ── Core Router ───────────────────────────────────────────────────────────────
+
+def route(intent, conn, dry_run=False, confirmed=False):
+    t0       = time.time()
+    deadline = t0 + TASK_TIMEOUT
+    template, params = extract_params(intent)
+
+    # Refresh app cache if stale (>24h) or empty
+    app_count = conn.execute("SELECT COUNT(*) FROM app_cache").fetchone()[0]
+    last_refresh = conn.execute(
+        "SELECT MAX(updated_at) FROM app_cache"
+    ).fetchone()[0]
+    if app_count == 0 or (last_refresh and
+            (datetime.now() - datetime.fromisoformat(last_refresh)).total_seconds() > 86400):
+        log.debug("App cache stale — refreshing...")
+        refresh_apps(conn)
+
+    print(f"\n{'='*54}")
+    print(f"  IMPRINT v{VERSION}")
+    print(f"  Intent:   {intent}")
+    print(f"  Template: {template}")
+    if params: print(f"  Params:   {params}")
+    print(f"{'='*54}")
+
+    plan, sim = search_cache(conn, intent)
+
+    if plan:
+        trusted = bool(plan["trusted"])
+        status  = "TRUSTED" if trusted else f"PENDING {plan['confirm_count']}/{N_CONFIRM}"
+        print(f"\n✅ Cache HIT [{status}] sim={sim:.2f}  '{plan['template']}'")
+        print(f"   {plan['hits']}✓ {plan['failures']}✗")
+
+        steps = json.loads(plan["steps"])
+
+        if dry_run:
+            hydrated = hydrate(steps, params)
+            print(f"\n[DRY RUN] {len(steps)} steps:")
+            for i, s in enumerate(hydrated):
+                tgt = s.get("target") or s.get("reason","")
+                print(f"  [{i+1}] {s.get('action')} → {tgt}")
+            return {"source":"cache","plan_id":plan["id"],"similarity":sim,"dry_run":True}
+
+        success, drift, error, steps_taken, _ = execute_steps(
+            conn, steps, intent=intent, plan_id_str=plan["id"],
+            params=params, task_deadline=deadline
+        , confirmed=confirmed)
+        ms = int((time.time()-t0)*1000)
+
+        if drift:
+            print(f"\n⚠️  Drift — falling through to LLM...")
+            mark_failure(conn, plan["id"], "drift")
+            plan = None
+
+        elif success:
+            mark_success(conn, plan["id"])
+            new_count = plan["confirm_count"] + 1
+            if not trusted and new_count >= N_CONFIRM:
+                print(f"  🎯 Plan PROMOTED to TRUSTED after {N_CONFIRM} confirmations!")
+            log_task(conn, intent, template, "cache", plan["id"], sim, 1, 0, ms, steps_taken)
+            print(f"\n✅ DONE  cache · 0 tokens · {ms}ms · {steps_taken} steps")
+            return {"source":"cache","plan_id":plan["id"],"similarity":sim,
+                    "tokens":0,"duration_ms":ms,"steps_taken":steps_taken}
+
+        else:
+            mark_failure(conn, plan["id"], error)
+            log_task(conn, intent, template, "cache", plan["id"], sim, 0, 0, ms, steps_taken)
+            print(f"\n❌ Failed: {error}")
+            return {"source":"cache","plan_id":plan["id"],"success":False,"error":error}
+
+    # ── LLM path ──────────────────────────────────────────────────────────────
+    if not plan:
+        print(f"\n🔍 Cache MISS (best sim={sim:.2f}) — querying LLM...")
+
+        if not CEREBRAS_KEY:
+            return {"source":"llm","success":False,"error":ERR_NO_LLM_KEY}
+
+        print("  Getting phone state...")
+        phone_state = pc_get_state(task=intent)
+        if phone_state.get("error"):
+            print(f"  ⚠️  {phone_state['error']} — planning blind")
+            phone_state = {"elements":[],"foreground_app":"unknown","screen_hash":""}
+
+        steps, error, tokens, llm_ms = ask_llm_for_plan(intent, template, params, phone_state)
+
+        if error or not steps:
+            print(f"❌ LLM failed: {error}")
+            log_task(conn, intent, template, "llm", None, 0.0, 0, tokens, llm_ms, 0)
+            return {"source":"llm","success":False,"error":error}
+
+        print(f"  LLM: {len(steps)} steps · {tokens} tokens · {llm_ms}ms")
+
+        if dry_run:
+            hydrated = hydrate(steps, params)
+            print(f"\n[DRY RUN] {len(steps)} LLM steps:")
+            for i, s in enumerate(hydrated):
+                print(f"  [{i+1}] {s.get('action')} → {s.get('target') or s.get('reason','')}")
+            return {"source":"llm","steps":steps,"tokens":tokens,"dry_run":True}
+
+        success, drift, error, steps_taken, _ = execute_steps(
+            conn, steps, intent=intent, params=params, task_deadline=deadline
+        , confirmed=confirmed)
+        ms = int((time.time()-t0)*1000)
+
+        if success:
+            pid, newly_trusted = store_or_confirm(
+                conn, intent, steps,
+                param_slots=list(params.keys()),
+                context=phone_state.get("foreground_app")
+            )
+            log_task(conn, intent, template, "llm", pid, 0.0, 1, tokens, ms, steps_taken)
+            trust_msg = "TRUSTED" if newly_trusted else f"PENDING (1/{N_CONFIRM})"
+            print(f"\n✅ DONE  LLM · {tokens} tokens · {ms}ms")
+            print(f"   Stored '{pid}' as {trust_msg} — next time: {'0 tokens' if newly_trusted else f'need {N_CONFIRM-1} more run(s)'}")
+            return {"source":"llm","plan_id":pid,"tokens":tokens,"duration_ms":ms,
+                    "steps_taken":steps_taken,"trusted":newly_trusted}
+        else:
+            log_task(conn, intent, template, "llm", None, 0.0, 0, tokens, ms, steps_taken)
+            print(f"\n❌ LLM plan failed: {error}")
+            return {"source":"llm","success":False,"error":error,"tokens":tokens}
+
+# ── Offline Queue ────────────────────────────────────────────────────────────
+
+def queue_task(conn, intent, dry_run=False):
+    """
+    Queue a task for later execution (e.g. when ADB is unavailable).
+    Useful when phone is offline / ADB unreachable temporarily.
+    """
+    conn.execute(
+        "INSERT INTO queue (ts, intent, dry_run, status) VALUES (?,?,?,'pending')",
+        (datetime.now().isoformat(), intent, 1 if dry_run else 0)
     )
+    conn.commit()
+    print(f"📥 Queued: '{intent}' (will run when ADB is available)")
 
-    messages = history + [{"role": "user", "content": prompt}]
-
-    resp = requests.post(
-        f"{CEREBRAS_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {CEREBRAS_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": TEXT_MODEL,
-            "messages": messages,
-            "max_tokens": 256,
-            "temperature": 0.1
-        },
-        timeout=30
-    )
-    resp.raise_for_status()
-
-    msg = resp.json()["choices"][0]["message"]
-    raw = msg.get("content") or msg.get("reasoning") or ""
-    raw = raw.strip()
-    m = re.search(r'\{.*\}', raw, re.DOTALL)
-    if not m:
-        raise ValueError(f"No JSON in native LLM response: {raw[:200]}")
-    raw = m.group(0)
-    action = json.loads(raw)
-    history_updated = messages + [{"role": "assistant", "content": raw}]
-    return action, history_updated
-
-def read_screen():
-    print("\n── Reading screen ──")
-    phone_state = get_phone_state()
-    if not phone_state["elements"]:
-        print("(empty screen)")
+def flush_queue(conn):
+    """
+    Execute all pending queued tasks.
+    Call this on reconnect or at startup to drain backlog.
+    """
+    rows = conn.execute(
+        "SELECT id, intent, dry_run FROM queue WHERE status='pending' ORDER BY id ASC"
+    ).fetchall()
+    if not rows:
+        print("Queue empty.")
         return
 
-    resp = requests.post(
-        f"{CEREBRAS_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {CEREBRAS_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": TEXT_MODEL,
-            "messages": [{
-                "role": "user",
-                "content": (
-                    "Summarize the key information visible on this Android screen "
-                    "in plain English. Be concise.\n\n" + render_ui_text(phone_state)
-                )
-            }],
-            "max_tokens": 512,
-            "temperature": 0.1
-        },
-        timeout=30
-    )
-    resp.raise_for_status()
-    msg = resp.json()["choices"][0]["message"]
-    result = msg.get("content") or msg.get("reasoning") or "(no response)"
-    print(f"\n{result}\n")
+    print(f"📤 Flushing {len(rows)} queued task(s)...")
+    for row_id, intent, dry_run in rows:
+        print(f"  ▶ '{intent}'")
+        try:
+            result = route(intent, conn, dry_run=bool(dry_run))
+            success = result.get("success", True)  # absence of 'success'=False means ok
+            conn.execute("""
+                UPDATE queue SET status=?, result=?, processed_at=? WHERE id=?
+            """, ('done' if success else 'failed',
+                  json.dumps(result)[:500], datetime.now().isoformat(), row_id))
+        except Exception as e:
+            conn.execute("UPDATE queue SET status='error', error=? WHERE id=?",
+                         (str(e)[:200], row_id))
+        conn.commit()
+    print("✅ Queue flushed.")
 
-def run_native_text(task, app=None, max_steps=20):
-    ensure_connected()
-    if app:
-        launch_app(app)
-        time.sleep(1)
+def show_queue(conn):
+    rows = conn.execute(
+        "SELECT id, ts, intent, status FROM queue ORDER BY id DESC LIMIT 20"
+    ).fetchall()
+    if not rows:
+        print("Queue is empty.")
+        return
+    print(f"\n── Queue ({'─'*42})")
+    for r in rows:
+        icon = {"pending":"⏳","done":"✅","failed":"❌","error":"💥"}.get(r[3],"?")
+        print(f"  {icon} [{r[0]}] {r[2][:50]:<50} {r[3]}  {r[1][:16]}")
+    print()
 
-    print(f"\n{'='*50}")
-    print(f"NATIVE TASK: {task}")
-    print(f"{'='*50}")
+# ── Stats & Management ────────────────────────────────────────────────────────
 
-    history = []
-    previous_hash = None
-    repeat_count = 0
-    last_action = None
+def print_stats(conn):
+    plans   = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
+    trusted = conn.execute("SELECT COUNT(*) FROM plans WHERE trusted=1").fetchone()[0]
+    total   = conn.execute("SELECT COUNT(*) FROM task_log").fetchone()[0]
+    hits    = conn.execute("SELECT COUNT(*) FROM task_log WHERE source='cache'").fetchone()[0]
+    llm_n   = conn.execute("SELECT COUNT(*) FROM task_log WHERE source='llm'").fetchone()[0]
+    replans = conn.execute("SELECT COUNT(*) FROM task_log WHERE source='replan'").fetchone()[0]
+    tokens  = conn.execute("SELECT SUM(tokens_used) FROM task_log").fetchone()[0] or 0
+    pct     = (hits/total*100) if total else 0
 
-    for step in range(max_steps):
-        print(f"\n[Step {step + 1}/{max_steps}]")
+    print(f"\n── IMPRINT v{VERSION} Stats ─────────────────────────────")
+    print(f"  Plans:          {plans} ({trusted} trusted, {plans-trusted} pending)")
+    print(f"  Tasks run:      {total}")
+    print(f"  Cache hits:     {hits} ({pct:.1f}%)")
+    print(f"  LLM calls:      {llm_n}")
+    print(f"  Mid replans:    {replans}")
+    print(f"  Tokens spent:   {tokens:,}")
+    print(f"  Est. saved:     {hits*800:,}  (@~800/plan)")
+    print(f"  DB:             {DB_PATH}")
+    print()
 
-        phone_state = get_phone_state(task=task)
-        if not phone_state["elements"]:
-            print("Empty UI dump — retrying...")
-            time.sleep(1)
-            phone_state = get_phone_state(task=task)
+def list_plans(conn):
+    rows = conn.execute(
+        "SELECT template,trusted,confirm_count,hits,failures,last_used,param_slots FROM plans ORDER BY hits DESC"
+    ).fetchall()
+    if not rows:
+        print("No plans stored yet.")
+        return
+    print(f"\n── Plans ({len(rows)}) {'─'*38}")
+    for r in rows:
+        status = "✅" if r[1] else f"⏳{r[2]}/{N_CONFIRM}"
+        last   = r[5][:10] if r[5] else "never"
+        slots  = json.loads(r[6] or "[]")
+        slot_s = f" [{','.join(slots)}]" if slots else ""
+        print(f"  [{status}] {r[3]}✓ {r[4]}✗  {r[0][:44]:<44}{slot_s}  {last}")
+    print()
 
-        current_hash = phone_state.get("screen_hash")
-        if current_hash == previous_hash:
-            repeat_count += 1
+def forget_plan_by_id(conn, pid):
+    """Surgically evict a plan by exact ID — no fuzzy matching."""
+    row = conn.execute("SELECT template FROM plans WHERE id=?", (pid,)).fetchone()
+    if row:
+        conn.execute("DELETE FROM plans WHERE id=?", (pid,))
+        conn.commit()
+        print(f"✅ Evicted plan: '{row[0]}'")
+    else:
+        print(f"No plan found with id: {pid}")
+
+def list_plans_json(conn):
+    """Return all plans as JSON for programmatic inspection (OpenClaw dispatcher)."""
+    rows = conn.execute("""
+        SELECT id, template, trusted, confirm_count, hits, failures,
+               param_slots, last_used, created_at
+        FROM plans ORDER BY hits DESC
+    """).fetchall()
+    cols = ["id","template","trusted","confirm_count","hits","failures",
+            "param_slots","last_used","created_at"]
+    return [dict(zip(cols, r)) for r in rows]
+
+def forget_plan(conn, intent):
+    template, _ = extract_params(intent)
+    pid = plan_id(template)
+    row = conn.execute("SELECT template FROM plans WHERE id=?", (pid,)).fetchone()
+    if not row:
+        best, _ = search_cache(conn, intent, threshold=0.5)
+        if best:
+            conn.execute("DELETE FROM plans WHERE id=?", (best["id"],))
+            conn.commit()
+            print(f"✅ Forgot: '{best['template']}'")
         else:
-            repeat_count = 0
-
-        print(
-            f"UI: {len(phone_state['elements'])} ranked / {phone_state.get('raw_count', 0)} raw "
-            f"| hash={current_hash} | repeats={repeat_count}"
-        )
-
-        if repeat_count >= 4:
-            print(f"\n⚠️  Screen stuck for {repeat_count} steps — aborting to prevent runaway loop")
-            break
-
-        loop_state = {
-            "repeat_count": repeat_count,
-            "last_action": last_action,
-        }
-
-        if len(history) > 20:
-            history = history[-20:]
-
-        try:
-            action, history = ask_cerebras_native(task, phone_state, history, loop_state)
-        except Exception as e:
-            print(f"LLM error: {e}")
-            break
-
-        print(f"→ {action.get('action')} — {action.get('reason','')}")
-
-        a = action["action"]
-        if a == "tap":
-            tap(action["x"], action["y"])
-        elif a == "type":
-            type_text(action["text"])
-        elif a == "swipe":
-            swipe(action["x1"], action["y1"],
-                  action["x2"], action["y2"],
-                  action.get("ms", 300))
-        elif a == "keyevent":
-            keyevent(action["key"])
-        elif a == "back":
-            press_back()
-        elif a == "scroll":
-            direction = action.get("direction", "down")
-            amount = int(action.get("amount", 800))
-            scroll_up(amount) if direction == "up" else scroll_down(amount)
-        elif a == "launch":
-            launch_app(action["app"])
-            time.sleep(1)
-        elif a == "done":
-            print(f"\n✅ DONE: {action.get('reason','')}")
-            read_screen()
-            break
-
-        last_action = action
-        previous_hash = current_hash
-        time.sleep(1.2)
-
+            print(f"No match for: '{intent}'")
     else:
-        print(f"\n⚠️  Max steps reached ({max_steps})")
-        read_screen()
-
-# ── Browser Reasoning ─────────────────────────────────────────────────────────
-
-def ask_cerebras(task, ui_tree, history):
-    prompt = (
-        f"You are controlling Chrome on Android via accessibility refs.\n"
-        f"Task: {task}\n\n"
-        f"Current page interactive elements:\n{ui_tree}\n\n"
-        "Pick the single best next action. Reply ONLY in JSON, no markdown:\n"
-        '{"action":"click","ref":"@e12","reason":"clicking search box"}\n'
-        '{"action":"fill","ref":"@e13","text":"weather New York","reason":"typing"}\n'
-        '{"action":"press","key":"Enter","reason":"submitting"}\n'
-        '{"action":"open","url":"https://google.com","reason":"navigating"}\n'
-        '{"action":"scroll","direction":"down","reason":"more content below"}\n'
-        '{"action":"back","reason":"going back"}\n'
-        '{"action":"done","reason":"task complete"}'
-    )
-
-    messages = history + [{"role": "user", "content": prompt}]
-
-    resp = requests.post(
-        f"{CEREBRAS_URL}/chat/completions",
-        headers={
-            "Authorization": f"Bearer {CEREBRAS_KEY}",
-            "Content-Type": "application/json"
-        },
-        json={
-            "model": TEXT_MODEL,
-            "messages": messages,
-            "max_tokens": 256,
-            "temperature": 0.1
-        },
-        timeout=30
-    )
-    resp.raise_for_status()
-
-    raw = resp.json()["choices"][0]["message"]["content"]
-    raw = raw.strip()
-    m = re.search(r'\{.*\}', raw, re.DOTALL)
-    if not m:
-        raise ValueError(f"No JSON in browser LLM response: {raw[:200]}")
-    raw = m.group(0)
-    action = json.loads(raw)
-    history_updated = messages + [{"role": "assistant", "content": raw}]
-    return action, history_updated
-
-# ── Vision LLM (optional fallback) ────────────────────────────────────────────
-
-OLLAMA_URL   = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-VISION_MODEL = os.environ.get("VISION_MODEL", "moondream")
-
-def ask_vision(task, img_b64, history):
-    """
-    Vision fallback via Moondream on Ollama (local, no API key needed).
-
-    Architecture note: use this as an interrogator, not a planner.
-    Ask it "what is visible?" or "is X present?" and feed the answer
-    back to the cloud LLM (Cerebras) to decide the action.
-
-    Switch models without code changes: export VISION_MODEL=llava
-    Switch endpoint: export OLLAMA_URL=http://192.168.x.x:11434
-    """
-    prompt = (
-        f"Task: {task}\n\n"
-        f"Screen resolution {DEVICE_WIDTH}x{DEVICE_HEIGHT}. "
-        "Reply ONLY with a single JSON action, no markdown:\n"
-        '{"action":"tap","x":540,"y":1200,"reason":"..."}\n'
-        '{"action":"type","text":"...","reason":"..."}\n'
-        '{"action":"swipe","x1":540,"y1":1400,"x2":540,"y2":600,"ms":300,"reason":"..."}\n'
-        '{"action":"keyevent","key":"KEYCODE_BACK","reason":"..."}\n'
-        '{"action":"back","reason":"..."}\n'
-        '{"action":"scroll","direction":"down","amount":800,"reason":"..."}\n'
-        '{"action":"launch","app":"chrome","reason":"..."}\n'
-        '{"action":"done","reason":"..."}'
-    )
-    resp = requests.post(
-        f"{OLLAMA_URL}/api/generate",
-        json={
-            "model": VISION_MODEL,
-            "prompt": prompt,
-            "images": [img_b64],
-            "stream": False,
-        },
-        timeout=60
-    )
-    resp.raise_for_status()
-    raw = resp.json().get("response", "").strip()
-    m = re.search(r'\{.*\}', raw, re.DOTALL)
-    if not m:
-        raise ValueError(f"No JSON in vision response: {raw[:200]}")
-    action = json.loads(m.group(0))
-    updated_history = history + [{"role": "assistant", "content": raw}]
-    return action, updated_history
-
-# ── Browser Agent Loop ────────────────────────────────────────────────────────
-
-def run_browser(task, start_url=None, max_steps=20):
-    ensure_connected()
-
-    if start_url:
-        launch_app("chrome", url=start_url)
-        time.sleep(2)
-
-    print(f"\n{'='*50}")
-    print(f"BROWSER TASK: {task}")
-    print(f"{'='*50}")
-
-    history = []
-
-    for step in range(max_steps):
-        print(f"\n[Step {step + 1}/{max_steps}]")
-
-        ui_tree = snapshot(interactive_only=True)
-        if not ui_tree:
-            print("Empty snapshot — re-forwarding CDP...")
-            subprocess.run(
-                f"{ADB} forward tcp:9222 localabstract:chrome_devtools_remote",
-                shell=True, capture_output=True
-            )
-            time.sleep(1)
-            ui_tree = snapshot()
-
-        print(f"UI: {len(ui_tree.splitlines())} elements")
-
-        if len(history) > 20:
-            history = history[-20:]
-
-        try:
-            action, history = ask_cerebras(task, ui_tree, history)
-        except Exception as e:
-            print(f"LLM error: {e}")
-            break
-
-        print(f"→ {action.get('action')} {action.get('ref','')}{action.get('url','')}{action.get('text','')} — {action.get('reason','')}")
-
-        a = action["action"]
-        if a == "click":
-            browser_action("click", ref=action["ref"])
-        elif a == "fill":
-            browser_action("fill", ref=action["ref"], text=action["text"])
-        elif a == "press":
-            browser_action("press", key=action["key"])
-        elif a == "open":
-            launch_app("chrome", url=action["url"])
-            time.sleep(2)
-        elif a == "scroll":
-            browser_action("scroll", direction=action.get("direction", "down"))
-        elif a == "back":
-            browser_action("back")
-        elif a == "done":
-            print(f"\n✅ DONE: {action.get('reason','')}")
-            break
-
-        time.sleep(1.5)
-
-    else:
-        print(f"\n⚠️  Max steps reached ({max_steps})")
-
-# ── Native Vision Agent Loop (optional) ──────────────────────────────────────
-
-def run_native(task, app=None, max_steps=20):
-    """Vision fallback loop via Moondream on Ollama. No API key required."""
-    ensure_connected()
-    if app:
-        launch_app(app)
-
-    print(f"\n{'='*50}")
-    print(f"NATIVE VISION TASK: {task}")
-    print(f"{'='*50}")
-
-    history = []
-    previous_hash = None
-    repeat_count = 0
-
-    for step in range(max_steps):
-        print(f"\n[Step {step + 1}/{max_steps}]")
-        img = screenshot()
-        current_hash = hashlib.sha1(img[:512].encode()).hexdigest()[:12]
-        repeat_count = repeat_count + 1 if current_hash == previous_hash else 0
-        if repeat_count >= 4:
-            print(f"\n⚠️  Vision loop stuck {repeat_count} steps — aborting")
-            break
-        previous_hash = current_hash
-
-        if len(history) > 20:
-            history = history[-20:]
-
-        try:
-            action, history = ask_vision(task, img, history)
-        except Exception as e:
-            print(f"LLM error: {e}")
-            break
-
-        print(f"→ {action.get('action')} — {action.get('reason','')}")
-        a = action["action"]
-        if a == "tap":
-            tap(action["x"], action["y"])
-        elif a == "type":
-            type_text(action["text"])
-        elif a == "swipe":
-            swipe(action["x1"], action["y1"], action["x2"], action["y2"], action.get("ms", 300))
-        elif a == "keyevent":
-            keyevent(action["key"])
-        elif a == "back":
-            press_back()
-        elif a == "scroll":
-            direction = action.get("direction", "down")
-            amount = int(action.get("amount", 800))
-            scroll_up(amount) if direction == "up" else scroll_down(amount)
-        elif a == "launch":
-            launch_app(action["app"])
-            time.sleep(1)
-        elif a == "done":
-            print(f"\n✅ DONE: {action.get('reason','')}")
-            break
-        time.sleep(1)
-
-# ── Auto-detect ───────────────────────────────────────────────────────────────
-
-def run(task, app=None, url=None, max_steps=20):
-    """
-    Auto-detect which track to use.
-
-    - app='chrome' or url set → browser track
-    - anything else           → native text track (default)
-
-    Vision is intentionally NOT auto-selected right now.
-    Keep the screenshot path around as an explicit fallback only.
-    """
-    if app == "chrome" or url:
-        run_browser(task, start_url=url, max_steps=max_steps)
-    else:
-        run_native_text(task, app=app, max_steps=max_steps)
-
-# ── CLI Tool Wrapper ─────────────────────────────────────────────────────────
-
-def perform_action(action):
-    """Execute a structured phone action and return a JSON-safe result.
-
-    Supported actions (for direct CLI use):
-      - tap:  {"action":"tap","x":540,"y":1200}
-      - type: {"action":"type","text":"hello"}
-
-    For `type`, we temporarily switch to ADBKeyboard and then restore
-    the original IME so your normal Android keyboard comes back.
-    """
-    a = (action or {}).get("action")
-    if not a:
-        return {"ok": False, "error": "missing action"}
-
-    if a == "tap":
-        try:
-            x = int(action["x"])
-            y = int(action["y"])
-        except Exception:
-            return {"ok": False, "error": "tap requires integer x and y"}
-        tap(x, y)
-        return {"ok": True, "executed": "tap", "x": x, "y": y}
-
-    if a == "type":
-        text_val = str(action.get("text", ""))
-        if not text_val:
-            return {"ok": False, "error": "type requires non-empty text"}
-
-        # Capture the current IME so we can restore it after typing.
-        try:
-            ime_res = subprocess.run(
-                f"{ADB} shell settings get secure default_input_method",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=4,
-            )
-            original_ime = ime_res.stdout.strip() or None
-        except Exception:
-            original_ime = None
-
-        # Best-effort: switch to ADBKeyboard for text input.
-        subprocess.run(
-            f"{ADB} shell ime set com.android.adbkeyboard/.AdbIME",
-            shell=True,
-            capture_output=True,
-            text=True,
-        )
-        type_text(text_val)
-
-        # Restore original IME if we captured one.
-        if original_ime:
-            subprocess.run(
-                f"{ADB} shell ime set {original_ime}",
-                shell=True,
-                capture_output=True,
-                text=True,
-            )
-
-        return {"ok": True, "executed": "type", "text": text_val}
-
-    # Fallback: unsupported actions from CLI
-    return {"ok": False, "error": f"unsupported action: {a}"}
-
+        conn.execute("DELETE FROM plans WHERE id=?", (pid,))
+        conn.commit()
+        print(f"✅ Forgot: '{row[0]}'")
 
 def run_check():
-    """Validate setup: ADB connection, ADBKeyboard IME, Cerebras key, Ollama."""
-    import urllib.request as _req
-    import json as _j
-    ok = True
-    print("── wrangle setup check ──")
-
-    connected = check_connected()
-    print(f"{'✅' if connected else '❌'} ADB: localhost:{ADB_PORT} "
-          f"{'connected' if connected else 'NOT connected'}")
-    if not connected:
-        print(f"   → adb connect localhost:{ADB_PORT}")
-        ok = False
-
-    if connected:
-        r = subprocess.run(f"{ADB} shell settings get secure default_input_method",
-                           shell=True, capture_output=True, text=True)
-        ime = r.stdout.strip()
-        ime_ok = "adbkeyboard" in ime.lower()
-        print(f"{'✅' if ime_ok else '⚠️ '} ADBKeyboard: "
-              f"{'active' if ime_ok else f'NOT active (current: {ime})'}")
-        if not ime_ok:
-            print("   → adb shell ime set com.android.adbkeyboard/.AdbIME")
-
-    key_ok = bool(CEREBRAS_KEY)
-    print(f"{'✅' if key_ok else '❌'} CEREBRAS_KEY: {'set' if key_ok else 'NOT set'}")
-    if not key_ok:
-        print("   → export CEREBRAS_KEY=your_key_here")
-        ok = False
-
+    print(f"── IMPRINT v{VERSION} check {'─'*30}")
+    print(f"{'✅' if os.path.exists(WRANGLE) else '❌'} wrangle:    {WRANGLE}")
+    print(f"{'✅' if CEREBRAS_KEY else '⚠️ '} CEREBRAS_KEY: {'set' if CEREBRAS_KEY else 'not set'}")
     try:
-        with _req.urlopen(f"{OLLAMA_URL}/api/tags", timeout=3) as resp:
-            tags = _j.loads(resp.read())
-        models = [m["name"].split(":")[0] for m in tags.get("models", [])]
-        model_ok = VISION_MODEL in models
-        print(f"{'✅' if model_ok else '⚠️ '} Ollama: reachable | "
-              f"{VISION_MODEL}: {'available' if model_ok else 'NOT pulled'}")
-        if not model_ok:
-            print(f"   → ollama pull {VISION_MODEL}")
+        conn = init_db()
+        p = conn.execute("SELECT COUNT(*) FROM plans").fetchone()[0]
+        a = conn.execute("SELECT COUNT(*) FROM app_cache").fetchone()[0]
+        print(f"✅ SQLite:       {DB_PATH} ({p} plans, {a} apps)")
+        conn.close()
     except Exception as e:
-        print(f"⚠️  Ollama: unreachable at {OLLAMA_URL} ({e})")
-        print("   → Vision fallback unavailable (text track still works fine)")
-
+        print(f"❌ SQLite:       {e}")
+    try:
+        r = subprocess.run(["adb","devices"], capture_output=True, text=True, timeout=5)
+        device_lines = [ln.strip() for ln in r.stdout.splitlines() if "\tdevice" in ln]
+        target = f"localhost:{ADB_PORT}"
+        connected = any(ln.startswith(target + "\t") for ln in device_lines) or bool(device_lines)
+        detail = target if any(ln.startswith(target + "\t") for ln in device_lines) else (device_lines[0].split("\t")[0] if device_lines else "none")
+        print(f"{'✅' if connected else '⚠️ '} ADB:          {'connected (' + detail + ')' if connected else 'no device'}")
+    except Exception as e:
+        print(f"⚠️  ADB:          {e}")
+    print(f"\n  threshold={THRESHOLD}  confirm={N_CONFIRM}  max_steps={MAX_STEPS}  retries={MAX_RETRIES}  timeout={TASK_TIMEOUT}s  debug={'on' if DEBUG else 'off'}")
     print()
-    print("✅ Core setup looks good." if ok else "❌ Fix the above before running.")
-    return 0 if ok else 1
 
-def print_json(data):
-    print(json.dumps(data, ensure_ascii=False))
+# ── CLI ───────────────────────────────────────────────────────────────────────
 
 def cli():
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="OpenClaw Android phone controller tool (text-first)."
-    )
-    sub = parser.add_subparsers(dest="command")
-
-    p_state = sub.add_parser("get_state", help="Return ranked current phone UI state as JSON")
-    p_state.add_argument("--task", default="", help="Task hint for element ranking")
-
-    p_action = sub.add_parser("do_action", help="Execute a JSON action on the phone")
-    p_action.add_argument("--json", required=True, dest="action_json", help="Action JSON payload")
-
-    p_run = sub.add_parser("run", help="Run the built-in loop")
-    p_run.add_argument("task", help="Task to complete")
-    p_run.add_argument("--app", default=None, help="App name or component")
-    p_run.add_argument("--url", default=None, help="URL for Chrome/browser track")
-    p_run.add_argument("--max-steps", type=int, default=20, help="Maximum loop steps")
-
-    p_read = sub.add_parser("read_screen", help="Summarize current screen using text model")
-
-    p_pkg = sub.add_parser("find_package", help="Search installed packages by name")
-    p_pkg.add_argument("name", help="Package search term")
-
-    sub.add_parser("list_apps", help="List installed/launchable apps as JSON")
-
-    p_launch = sub.add_parser("launch_app", help="Launch an app by alias, package, or component")
-    p_launch.add_argument("app", help="App alias, package, or full component")
-    p_launch.add_argument("--url", default=None, help="Optional URL when launching Chrome")
-
-    sub.add_parser("check", help="Validate ADB, ADBKeyboard, Cerebras key, and Ollama")
-
-    p_shot = sub.add_parser("save_screenshot", help="Save screenshot to Gallery")
-    p_shot.add_argument("--path", default="/sdcard/DCIM/Screenshots/wrangle.png")
-
-    args = parser.parse_args()
-
-    if not args.command:
-        parser.print_help()
-        return 1
-
-    ensure_connected()
-
-    if args.command == "check":
-        return run_check()
-
-    if args.command == "get_state":
-        print_json(get_phone_state(task=args.task))
+    args = sys.argv[1:]
+    if not args:
+        print(f"IMPRINT v{VERSION} — Local Agentic Model")
+        print("  ask '<task>' [--dry]  stats  list  forget '<task>'  apps  check")
         return 0
 
-    if args.command == "do_action":
-        try:
-            action = json.loads(args.action_json)
-        except Exception as e:
-            print_json({"ok": False, "error": f"invalid json: {e}"})
-            return 2
-        print_json(perform_action(action))
-        return 0
+    cmd = args[0].lower()
+    if cmd == "check":
+        run_check(); return 0
 
-    if args.command == "run":
-        run(args.task, app=args.app, url=args.url, max_steps=args.max_steps)
-        return 0
+    conn = init_db()
 
-    if args.command == "read_screen":
-        read_screen()
-        return 0
+    if   cmd == "stats":      print_stats(conn)
+    elif cmd == "queue":      show_queue(conn)
+    elif cmd == "flush":      flush_queue(conn)
+    elif cmd == "plans-json": print(json.dumps(list_plans_json(conn), indent=2))
+    elif cmd == "forget-id":
+        if len(args) < 2: print("Usage: imprint.py forget-id <plan_id>"); return 1
+        forget_plan_by_id(conn, args[1])
+    elif cmd == "list":   list_plans(conn)
+    elif cmd == "apps":   refresh_apps(conn)
+    elif cmd == "forget":
+        if len(args) < 2: print("Usage: imprint.py forget '<task>'"); return 1
+        forget_plan(conn, " ".join(args[1:]).strip("'\""))
+    elif cmd == "ask":
+        if len(args) < 2: print("Usage: imprint.py ask '<task>'"); return 1
+        dry       = "--dry"       in args
+        queued    = "--queue"     in args
+        confirmed = "--confirmed" in args
+        intent = " ".join(
+            a for a in args[1:]
+            if a not in ("--dry","--queue","--confirmed")
+        ).strip("'\"")
+        if queued:
+            queue_task(conn, intent, dry_run=dry)
+            result = {"queued": True, "intent": intent}
+        else:
+            result = route(intent, conn, dry_run=dry, confirmed=confirmed)
+        print("\n" + json.dumps(result, indent=2))
+    else:
+        print(f"Unknown: {cmd}"); return 1
 
-    if args.command == "find_package":
-        print_json(find_package(args.name))
-        return 0
-
-    if args.command == "list_apps":
-        print_json(list_apps())
-        return 0
-
-    if args.command == "launch_app":
-        launch_app(args.app, url=args.url)
-        print_json({"ok": True, "executed": "launch", "app": args.app, "url": args.url})
-        return 0
-
-    if args.command == "save_screenshot":
-        screenshot_and_save(args.path)
-        return 0
-
-    parser.print_help()
-    return 1
-
-# ── Entry point ───────────────────────────────────────────────────────────────
+    conn.close()
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(cli())
