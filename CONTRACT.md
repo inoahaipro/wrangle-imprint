@@ -387,8 +387,8 @@ CREATE TABLE step_log (
 
 | Component | Version |
 |-----------|---------|
-| imprint.py | 1.0.0 |
-| wrangle.py | 1.0.0 |
-| Contract spec | 1.0.0 |
+| imprint.py | 2.0.0 |
+| wrangle.py | 2.0.0 |
+| Contract spec | 2.0.0 |
 
 Breaking changes to this contract must bump the major version of both files and this document.
