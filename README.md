@@ -108,19 +108,13 @@ adb shell ime set com.android.adbkeyboard/.AdbIME
 
 ### 5. LLM Backend (v2 behavior)
 
-IMPRINT now plans through your **OpenClaw session** (default `OPENCLAW_SESSION=main`) by calling:
+In v2, IMPRINT plans through your configured OpenClaw session:
 
 ```bash
-openclaw agent --session-id main --message "..." --json
+export OPENCLAW_SESSION="main"
 ```
 
-That means IMPRINT uses whatever default model/provider OpenClaw is configured with (for example OpenClaw's default GPT-OSS setup), instead of requiring direct Cerebras configuration in `imprint.py`.
-
-```bash
-export OPENCLAW_SESSION=main   # optional override
-```
-
-`wrangle.py` still supports direct Cerebras calls for browser/native text reasoning tracks, so set `CEREBRAS_KEY` if you run wrangle LLM tracks directly.
+`CEREBRAS_KEY` is **optional** now and only needed if you run wrangle's direct text/browser tracks yourself.
 
 > Once a plan is learned, IMPRINT can replay it from cache without calling the LLM again.
 
@@ -184,7 +178,7 @@ sh -c 'sleep 5; cd ~/wrangle-imprint/src; python wrangle.py do_action --json "{\
 
 ### 2. IMPRINT — plan and execute a task
 
-Once OpenClaw is installed and your target session is available in Termux:
+Once OpenClaw is configured and reachable from Termux:
 
 ```bash
 cd ~/wrangle-imprint/src
@@ -230,7 +224,7 @@ If you're writing a dispatcher or a new execution adapter, start there.
 
 ## Roadmap
 
-- [ ] Route wrangle text/browser reasoning through OpenClaw too (so both files share one model/session config)
+- [ ] Provider-aware planning profiles (local/cloud) with per-task routing from OpenClaw session config
 - [ ] USB-first ADB setup so Wi-Fi isn't required
 - [ ] Better browser automation loop for Chrome (via `agent-browser`)
 - [ ] Prebuilt skill packs for common tasks: messaging, toggles, settings, etc.
@@ -264,4 +258,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-
