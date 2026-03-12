@@ -62,8 +62,8 @@ import xml.etree.ElementTree as ET
 # ── Config ────────────────────────────────────────────────────────────────────
 
 # ADB_PORT: 5555 is the standard ADB-over-TCP default.
-# OpenClaw Termux tunnel uses 34371 — set ADB_PORT=34371 in that case.
-ADB_PORT      = os.environ.get("ADB_PORT", "34371")
+# OpenClaw Termux tunnel uses 45171 — set ADB_PORT=45171 in that case.
+ADB_PORT      = os.environ.get("ADB_PORT", "45171")
 ADB           = f"adb -s localhost:{ADB_PORT}"
 # CEREBRAS_KEY can be set via env; falls back to the key from openclaw.json
 CEREBRAS_KEY  = os.environ.get("CEREBRAS_KEY")
@@ -200,7 +200,13 @@ APPS = {
     "whatsapp": "com.whatsapp/com.whatsapp.HomeActivity",
     "settings": "com.android.settings/.Settings",
     "spotify":  "com.spotify.music/com.spotify.music.MainActivity",
-    "youtube":  "com.google.android.youtube/com.google.android.youtube.app.honeycomb.Shell$HomeActivity",
+    # Use package-only here; launch_app will use monkey so we don't have to
+    # deal with the $HomeActivity component escaping.
+    "youtube":  "com.google.android.youtube",
+    # Facebook main app on your phone
+    "facebook": "com.facebook.katana/com.facebook.katana.LoginActivity",
+    # ChatGPT app on your phone
+    "chatgpt":  "com.openai.chatgpt",
     "telegram": "org.telegram.messenger/org.telegram.messenger.DefaultIcon",
     "camera":   "com.sec.android.app.camera/com.sec.android.app.camera.Camera",       # Samsung only
     "gallery":  "com.sec.android.gallery3d/com.sec.android.gallery3d.app.GalleryActivity",  # Samsung only
@@ -264,8 +270,10 @@ def launch_app(app_name, url=None, wait=2):
     target, method = _resolve_launch_target(app_name)
     log.debug(f"launch_app: {app_name!r} → {target!r} via {method}")
 
-    if method == "monkey":
-        # package-only launch via monkey
+    # If we only have a package name (no /component), or the resolver
+    # explicitly said "monkey", use monkey to avoid component escaping
+    # issues (like the $HomeActivity in YouTube's launcher activity).
+    if method == "monkey" or "/" not in target:
         subprocess.run(
             f"{ADB} shell monkey -p {target} -c android.intent.category.LAUNCHER 1",
             shell=True, capture_output=True
@@ -377,16 +385,68 @@ def check_adbkeyboard():
         return False
     return True
 
+
+def clear_focused_input_if_any(max_deletes: int = 80) -> bool:
+    """If a focused editable field currently has text, clear it before typing.
+
+    Uses wrangle's own get_phone_state so we don't depend on IMPRINT here.
+    Returns True if we detected text and sent deletes, False otherwise.
+    """
+    try:
+        state = get_phone_state()
+    except Exception:
+        return False
+
+    elements = state.get("elements", []) or []
+    has_text = False
+    for el in elements:
+        cls = (el.get("class") or "").lower()
+        rid = (el.get("resource-id") or el.get("resource_id") or "").lower()
+        label = (el.get("label") or el.get("text") or "").strip()
+
+        # Treat typical text inputs as editable even if "editable" flag is false
+        is_text_input = (
+            el.get("editable")
+            or "edittext" in cls
+            or "autocompletetextview" in cls
+            or "textarea" in cls
+            or "prompt-textarea" in rid
+        )
+        if not is_text_input:
+            continue
+
+        if not el.get("focused") and not el.get("focusable"):
+            continue
+        if label:
+            has_text = True
+            break
+
+    if not has_text:
+        return False
+
+    try:
+        keyevent("KEYCODE_MOVE_END", delay=0.05)
+    except Exception:
+        pass
+    for _ in range(max_deletes):
+        try:
+            keyevent("KEYCODE_DEL", delay=0.02)
+        except Exception:
+            break
+    return True
+
+
 def type_text(text, delay=0.3):
-    """Type text via ADBKeyboard broadcast (handles unicode, spaces, special chars)."""
-    escaped = text.replace("'", "\'")
-    r = subprocess.run(
-        f"{ADB} shell am broadcast -a ADB_INPUT_TEXT --es msg '{escaped}'",
-        shell=True, capture_output=True, text=True
-    )
-    if r.returncode != 0 or "result=0" in r.stdout:
-        print("⚠️  ADBKeyboard broadcast failed — is ADBKeyboard installed and active?")
-        check_adbkeyboard()
+    """Type text via adb input text (no IME dependency).
+
+    This avoids ADBKeyboard flakiness in some apps (e.g. Facebook composer)
+    by sending input directly, regardless of the current soft keyboard.
+    Note: adb input text has limited escaping; this is tuned for short
+    alphanumeric/space strings like queries and chat messages.
+    """
+    # Basic escaping: spaces -> %s, percent -> %%
+    safe = text.replace('%', '%%').replace(' ', '%s')
+    subprocess.run(f"{ADB} shell input text {safe}", shell=True)
     time.sleep(delay)
 
 def keyevent(key, delay=0.3):
@@ -475,81 +535,102 @@ def element_score(el, task=""):
     return round(score, 2)
 
 def collect_ui_elements(task=""):
-    """Return ranked visible UI elements plus a stable screen hash."""
-    # Wake screen first — UIAutomator returns empty on a locked/sleeping display
-    subprocess.run(f"{ADB} shell input keyevent KEYCODE_WAKEUP",
-                   shell=True, capture_output=True)
-    subprocess.run(
-        f"{ADB} shell uiautomator dump /sdcard/ui.xml",
-        shell=True, capture_output=True, timeout=10
-    )
-    local_xml = os.path.expanduser("~/ui.xml")
-    subprocess.run(
-        f"{ADB} pull /sdcard/ui.xml {local_xml}",
-        shell=True, capture_output=True, timeout=10
-    )
+    """Return ranked visible UI elements plus a stable screen hash.
 
-    try:
-        tree = ET.parse(local_xml)
-        root = tree.getroot()
-    except Exception as e:
-        return {
-            "screen_hash": "parse_error",
-            "elements": [],
-            "raw_count": 0,
-            "error": f"XML parse error: {e}",
-        }
+    Retries up to 3 times if UIAutomator returns an empty dump — this happens
+    when the screen is mid-transition, locked, or the system is briefly busy.
+    """
+    for attempt in range(1, 4):
+        # Wake screen first — UIAutomator returns empty on a locked/sleeping display
+        subprocess.run(f"{ADB} shell input keyevent KEYCODE_WAKEUP",
+                       shell=True, capture_output=True)
+        subprocess.run(
+            f"{ADB} shell uiautomator dump /sdcard/ui.xml",
+            shell=True, capture_output=True, timeout=10
+        )
+        local_xml = os.path.expanduser("~/ui.xml")
+        subprocess.run(
+            f"{ADB} pull /sdcard/ui.xml {local_xml}",
+            shell=True, capture_output=True, timeout=10
+        )
 
-    elements = []
-    raw_count = 0
-    for idx, node in enumerate(root.iter("node"), start=1):
-        raw_count += 1
-        cls = node.get("class", "").split(".")[-1]
-        text = node.get("text", "").strip()
-        desc = node.get("content-desc", "").strip()
-        resource = node.get("resource-id", "").split("/")[-1]
-        package = node.get("package", "")
-        bounds = node.get("bounds", "")
-        clickable = node.get("clickable", "false") == "true"
-        enabled = node.get("enabled", "false") == "true"
-        focusable = node.get("focusable", "false") == "true"
-        editable = node.get("editable", "false") == "true"
-        checkable = node.get("checkable", "false") == "true"
-        checked = node.get("checked", "false") == "true"
-        selected = node.get("selected", "false") == "true"
-        scrollable = node.get("scrollable", "false") == "true"
+        try:
+            tree = ET.parse(local_xml)
+            root = tree.getroot()
+        except Exception as e:
+            if attempt < 3:
+                time.sleep(0.8)
+                continue
+            return {
+                "screen_hash": "parse_error",
+                "elements": [],
+                "raw_count": 0,
+                "error": f"XML parse error: {e}",
+            }
 
-        if not enabled:
+        elements = []
+        raw_count = 0
+        for idx, node in enumerate(root.iter("node"), start=1):
+            raw_count += 1
+            cls = node.get("class", "").split(".")[-1]
+            text = node.get("text", "").strip()
+            desc = node.get("content-desc", "").strip()
+            resource = node.get("resource-id", "").split("/")[-1]
+            package = node.get("package", "")
+            bounds = node.get("bounds", "")
+            clickable = node.get("clickable", "false") == "true"
+            enabled = node.get("enabled", "false") == "true"
+            focusable = node.get("focusable", "false") == "true"
+            focused = node.get("focused", "false") == "true"
+            editable = node.get("editable", "false") == "true"
+            checkable = node.get("checkable", "false") == "true"
+            checked = node.get("checked", "false") == "true"
+            selected = node.get("selected", "false") == "true"
+            scrollable = node.get("scrollable", "false") == "true"
+
+            if not enabled:
+                continue
+
+            label = clean_label(text, desc, resource)
+            if not label and not clickable and not editable and not checkable:
+                continue
+
+            parsed = parse_bounds(bounds)
+            if not parsed:
+                continue
+
+            element = {
+                "id": idx,
+                "label": label,
+                "class": cls,
+                "resource_id": resource,
+                "content_desc": desc,
+                "package": package,
+                "clickable": clickable,
+                "focusable": focusable,
+                "focused": focused,
+                "enabled": enabled,
+                "editable": editable,
+                "checkable": checkable,
+                "checked": checked,
+                "selected": selected,
+                "scrollable": scrollable,
+                "bounds": bounds,
+                "center": [parsed["cx"], parsed["cy"]],
+                "area": parsed["w"] * parsed["h"],
+            }
+            element["score"] = element_score(element, task)
+            elements.append(element)
+
+        # If UIAutomator returned zero useful nodes, the screen is likely
+        # mid-transition. Retry after a short wait.
+        if not elements and attempt < 3:
+            log.debug(f"collect_ui_elements: empty dump (attempt {attempt}/3), retrying...")
+            time.sleep(0.8)
             continue
 
-        label = clean_label(text, desc, resource)
-        if not label and not clickable and not editable and not checkable:
-            continue
-
-        parsed = parse_bounds(bounds)
-        if not parsed:
-            continue
-
-        element = {
-            "id": idx,
-            "label": label,
-            "class": cls,
-            "resource_id": resource,
-            "content_desc": desc,
-            "package": package,
-            "clickable": clickable,
-            "focusable": focusable,
-            "editable": editable,
-            "checkable": checkable,
-            "checked": checked,
-            "selected": selected,
-            "scrollable": scrollable,
-            "bounds": bounds,
-            "center": [parsed["cx"], parsed["cy"]],
-            "area": parsed["w"] * parsed["h"],
-        }
-        element["score"] = element_score(element, task)
-        elements.append(element)
+        # Got elements — no need to retry
+        break
 
     elements.sort(key=lambda e: e["score"], reverse=True)
     ranked = elements[:MAX_UI_ELEMENTS]
@@ -603,6 +684,60 @@ def ui_dump(task=""):
         return state["error"]
     return render_ui_text(state)
 
+def _get_foreground_app():
+    """
+    Detect foreground app across Android versions.
+
+    Android 10 and earlier:  dumpsys activity activities → mResumedActivity
+    Android 11+:              mResumedActivity may be gone; fall back to
+                              dumpsys window windows → mCurrentFocus, then
+                              dumpsys activity top → ACTIVITY line.
+    Returns package string or empty string on failure.
+    """
+    # Method 1 — activity stack (reliable on most versions)
+    try:
+        r = subprocess.run(
+            f"{ADB} shell dumpsys activity activities",
+            shell=True, capture_output=True, text=True, timeout=6
+        )
+        for line in r.stdout.splitlines():
+            if "ResumedActivity" in line:
+                m = re.search(r"([A-Za-z0-9_.]+)/[A-Za-z0-9_.]+", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+
+    # Method 2 — window focus (works on Android 12/13/14)
+    try:
+        r = subprocess.run(
+            f"{ADB} shell dumpsys window windows",
+            shell=True, capture_output=True, text=True, timeout=6
+        )
+        for line in r.stdout.splitlines():
+            if "mCurrentFocus" in line or "mFocusedApp" in line:
+                m = re.search(r"([A-Za-z0-9_.]+)/[A-Za-z0-9_.]+", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+
+    # Method 3 — activity top (last resort, slower but universal)
+    try:
+        r = subprocess.run(
+            f"{ADB} shell dumpsys activity top",
+            shell=True, capture_output=True, text=True, timeout=6
+        )
+        for line in r.stdout.splitlines():
+            if "ACTIVITY" in line:
+                m = re.search(r"([A-Za-z0-9_.]+)/[A-Za-z0-9_.]+", line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+
+    return ""
+
 def get_phone_state(task=""):
     state = collect_ui_elements(task=task)
     if state.get("error"):
@@ -646,18 +781,7 @@ def get_phone_state(task=""):
             "score":        el["score"],
         })
 
-    fg_app = ""
-    try:
-        r = subprocess.run(
-            f"{ADB} shell dumpsys activity | grep mResumedActivity",
-            shell=True, capture_output=True, text=True, timeout=5
-        )
-        m = re.search(r'([A-Za-z0-9_.]+)/[A-Za-z0-9_.]+', r.stdout)
-        if m:
-            fg_app = m.group(1)
-    except Exception:
-        pass
-
+    fg_app = _get_foreground_app()
     summary = f"{len(elements)} ranked elements from {state['raw_count']} raw UI nodes"
     return {
         "screen_hash": state["screen_hash"],
@@ -1095,12 +1219,19 @@ def run(task, app=None, url=None, max_steps=20):
 def perform_action(action):
     """Execute a structured phone action and return a JSON-safe result.
 
-    Supported actions (for direct CLI use):
-      - tap:  {"action":"tap","x":540,"y":1200}
-      - type: {"action":"type","text":"hello"}
+    Supported actions:
+      tap        {"action":"tap","x":540,"y":1200}
+      type       {"action":"type","text":"hello"}
+      swipe      {"action":"swipe","x1":100,"y1":800,"x2":100,"y2":200,"ms":300}
+      scroll     {"action":"scroll","direction":"down","amount":800}
+      keyevent   {"action":"keyevent","key":"KEYCODE_ENTER"}
+      back       {"action":"back"}
+      launch     {"action":"launch","app":"youtube"}
+      open_url   {"action":"open_url","url":"https://m.youtube.com/..."}
+      done       {"action":"done","reason":"task complete"}
 
-    For `type`, we temporarily switch to ADBKeyboard and then restore
-    the original IME so your normal Android keyboard comes back.
+    For `type`, temporarily switches to ADBKeyboard (base64 broadcast) then
+    restores the original IME so your normal keyboard comes back.
     """
     a = (action or {}).get("action")
     if not a:
@@ -1120,40 +1251,98 @@ def perform_action(action):
         if not text_val:
             return {"ok": False, "error": "type requires non-empty text"}
 
-        # Capture the current IME so we can restore it after typing.
+        # Capture current IME, switch to ADBKeyboard, then re-focus an
+        # input-like field before typing so we don't lose focus to "Done".
         try:
             ime_res = subprocess.run(
                 f"{ADB} shell settings get secure default_input_method",
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=4,
+                shell=True, capture_output=True, text=True, timeout=4,
             )
             original_ime = ime_res.stdout.strip() or None
         except Exception:
             original_ime = None
 
-        # Best-effort: switch to ADBKeyboard for text input.
         subprocess.run(
             f"{ADB} shell ime set com.android.adbkeyboard/.AdbIME",
-            shell=True,
-            capture_output=True,
-            text=True,
+            shell=True, capture_output=True, text=True,
         )
+        time.sleep(0.3)
+
+        # After IME switch, re-focus a likely input field.
+        try:
+            state = get_phone_state()
+            els = state.get("elements", []) or []
+            target_el = None
+            for el in els:
+                cls = (el.get("class") or "").lower()
+                rid = (el.get("resource-id") or el.get("resource_id") or "").lower()
+                if "edittext" in cls or "autocompletetextview" in cls or "textarea" in cls:
+                    target_el = el
+                    break
+                if "prompt-textarea" in rid:
+                    target_el = el
+                    break
+            if target_el:
+                tap(int(target_el["x"]), int(target_el["y"]), delay=0.2)
+        except Exception:
+            pass
+
+        clear_focused_input_if_any()
         type_text(text_val)
 
-        # Restore original IME if we captured one.
         if original_ime:
             subprocess.run(
                 f"{ADB} shell ime set {original_ime}",
-                shell=True,
-                capture_output=True,
-                text=True,
+                shell=True, capture_output=True, text=True,
             )
 
         return {"ok": True, "executed": "type", "text": text_val}
 
-    # Fallback: unsupported actions from CLI
+    if a == "swipe":
+        try:
+            x1 = int(action["x1"]); y1 = int(action["y1"])
+            x2 = int(action["x2"]); y2 = int(action["y2"])
+        except Exception:
+            return {"ok": False, "error": "swipe requires x1,y1,x2,y2"}
+        ms = int(action.get("ms", 300))
+        swipe(x1, y1, x2, y2, ms=ms, delay=0)
+        return {"ok": True, "executed": "swipe"}
+
+    if a == "scroll":
+        direction = action.get("direction", "down")
+        amount = int(action.get("amount", 800))
+        scroll_up(amount) if direction == "up" else scroll_down(amount)
+        return {"ok": True, "executed": "scroll", "direction": direction}
+
+    if a == "keyevent":
+        key = action.get("key", "")
+        if not key:
+            return {"ok": False, "error": "keyevent requires key"}
+        keyevent(key)
+        return {"ok": True, "executed": "keyevent", "key": key}
+
+    if a == "back":
+        press_back()
+        return {"ok": True, "executed": "back"}
+
+    if a == "launch":
+        app_name = action.get("app", "")
+        if not app_name:
+            return {"ok": False, "error": "launch requires app name"}
+        url = action.get("url")
+        pkg = launch_app(app_name, url=url)
+        return {"ok": True, "executed": "launch", "app": app_name, "package": pkg}
+
+    if a == "open_url":
+        url = action.get("url", "")
+        if not url:
+            return {"ok": False, "error": "open_url requires url"}
+        launch_app("chrome", url=url)
+        return {"ok": True, "executed": "open_url", "url": url}
+
+    if a == "done":
+        return {"ok": True, "executed": "done", "reason": action.get("reason", "")}
+
     return {"ok": False, "error": f"unsupported action: {a}"}
 
 
