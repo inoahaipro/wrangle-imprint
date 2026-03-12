@@ -50,7 +50,7 @@ ENV VARS:
   IMPRINT_DEBUG       Set 1 for verbose logging
 """
 
-import os, re, sys, json, math, time, hashlib, sqlite3, subprocess, logging
+import os, re, sys, json, math, time, hashlib, sqlite3, subprocess, logging, urllib.parse
 PYTHON = sys.executable  # always use the running interpreter, not bare "python"
 from datetime import datetime
 from collections import Counter
@@ -60,7 +60,7 @@ from collections import Counter
 # OpenClaw agent session to use for LLM planning.
 # Override with OPENCLAW_SESSION env var if you use a different session name.
 OPENCLAW_SESSION = os.environ.get("OPENCLAW_SESSION", "main")
-ADB_PORT     = os.environ.get("ADB_PORT", "34371")
+ADB_PORT     = os.environ.get("ADB_PORT", "45171")
 DB_PATH      = os.environ.get("IMPRINT_DB", os.path.expanduser("~/.imprint/memory.db"))
 THRESHOLD    = float(os.environ.get("IMPRINT_THRESHOLD", "0.72"))
 WRANGLE      = os.environ.get("WRANGLE_PATH", os.path.join(os.path.dirname(os.path.abspath(__file__)), "wrangle.py"))
@@ -83,7 +83,7 @@ ERR_SCREEN_DRIFT      = "screen_drift"
 ERR_UNSAFE_BLOCKED    = "unsafe_action_blocked"
 ERR_MAX_STEPS         = "max_steps_exceeded"
 ERR_TIMEOUT           = "task_timeout"
-ERR_NO_LLM_KEY        = "openclaw_unavailable"
+ERR_NO_LLM_KEY        = "llm_key_missing"
 
 logging.basicConfig(level=logging.DEBUG if DEBUG else logging.WARNING, format="[%(levelname)s] %(message)s")
 log = logging.getLogger("imprint")
@@ -163,6 +163,8 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_queue_status    ON queue(status, id);
     """)
     conn.commit()
+    # Seed built-in templates (e.g., Facebook post flow) if templates.json exists
+    seed_templates(conn)
     return conn
 
 # ── Param Extraction ──────────────────────────────────────────────────────────
@@ -176,6 +178,12 @@ PARAM_PATTERNS = [
     (re.compile(r"'([^']+)'"),                                               "message", False),
     # "saying X" / "with message X" → {message}  (must come before contact)
     (re.compile(r'\b(?:saying|with message|with text)\s+(.+)$', re.I),    "message", False),
+    # Social post patterns: "post hi on facebook" → {message}
+    (re.compile(r'\bpost\s+(.+?)\s+on\s+facebook\b', re.I),             "message", False),
+    # Search/play/watch/find queries → {query}
+    # Captures: "search for X on Y", "play X on Y", "watch X on Y", "find X", "look up X"
+    # Stops before " on ", " in ", " at " to avoid swallowing the app/platform name
+    (re.compile(r'\b(?:search for|search|play|watch|find|look up|listen to)\s+(.+?)(?=\s+(?:on|in|at|via|using)\s+\w|\s*$)', re.I), "query", False),
     # Contact after action verb — captures Title Case AND lowercase names
     # Stops at prepositions (on, via, in, at, through) to avoid "Mom on WhatsApp" → "Mom on"
     # Examples: "message mom", "call John", "text Dr Smith"
@@ -279,6 +287,44 @@ def plan_id(template):
 def _plan_cols(conn):
     return [d[0] for d in conn.execute("SELECT * FROM plans LIMIT 0").description]
 
+
+def seed_templates(conn):
+    """Load built-in templates from templates.json into the plans table.
+
+    This lets us ship known-good flows (like Facebook posting) without
+    requiring every user to "teach" them via the LLM the first time.
+    """
+    tmpl_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates.json")
+    if not os.path.exists(tmpl_path):
+        return
+    try:
+        with open(tmpl_path, "r", encoding="utf-8") as f:
+            templates = json.load(f)
+    except Exception:
+        return
+    now = datetime.now().isoformat()
+    for t in templates or []:
+        template = t.get("template")
+        steps = t.get("steps")
+        param_slots = t.get("param_slots", [])
+        context = t.get("context")
+        if not template or not steps:
+            continue
+        pid = plan_id(template)
+        row = conn.execute("SELECT id FROM plans WHERE id=?", (pid,)).fetchone()
+        if row:
+            continue
+        vec = tfidf_vector(template)
+        conn.execute(
+            """INSERT INTO plans (id,template,intent_vec,steps,param_slots,context,
+                   trusted,confirm_count,hits,failures,consecutive_failures,
+                   created_at,last_used,last_result)
+                VALUES (?,?,?,?,?,?,1,?,0,0,0,?,?,?)""",
+            (pid, template, json.dumps(vec), json.dumps(steps), json.dumps(param_slots), context,
+             N_CONFIRM, now, now, "seeded")
+        )
+    conn.commit()
+
 def search_cache(conn, intent, threshold=THRESHOLD):
     template, _ = extract_params(intent)
     query_vec = tfidf_vector(template)
@@ -291,6 +337,12 @@ def search_cache(conn, intent, threshold=THRESHOLD):
 
     cols = _plan_cols(conn)
     best, best_sim = None, 0.0
+
+    # Extract lightweight verb set from the current intent so we can avoid
+    # reusing a simple "open {app}" plan for a richer intent like
+    # "open settings and scroll down".
+    intent_tokens = set(tokenize(template))
+    EXTRA_ACTION_WORDS = {"scroll", "search", "toggle", "enable", "disable", "message", "call"}
 
     for row in rows:
         p = dict(zip(cols, row))
@@ -307,6 +359,15 @@ def search_cache(conn, intent, threshold=THRESHOLD):
         total = p["hits"] + p["failures"]
         if total > 0:
             sim *= (0.85 + 0.15 * (p["hits"] / total))
+
+        # Penalize matches where the new intent introduces extra action
+        # words (e.g. "scroll") that are not present in the stored
+        # template. This prevents plain "open {app}" plans from being
+        # reused for richer intents like "open {app} and scroll down".
+        tmpl_tokens = set(tokenize(p["template"]))
+        extra_verbs = {w for w in intent_tokens if w in EXTRA_ACTION_WORDS and w not in tmpl_tokens}
+        if extra_verbs:
+            sim *= 0.7
 
         if sim > best_sim:
             best_sim, best = sim, p
@@ -423,27 +484,85 @@ def resolve_app(conn, name):
 # ── Element Resolver ──────────────────────────────────────────────────────────
 
 def resolve_element(elements, target):
-    """Find best UI element for target spec (str or {text,id,desc} dict)."""
+    """Find best UI element for target spec (str or {text,id,desc,label} dict).
+
+    Checks text, label, content-desc, and resource-id (hyphen and underscore
+    variants) so mismatches between wrangle's field names don't cause misses.
+
+    Also has a small special case for search: when targeting a generic
+    "Search" field, ignore the "Voice search" mic button so we tap the
+    text field instead.
+    """
     if not elements or not target:
         return None
     if isinstance(target, str):
         target = {"text": target}
 
+    # Detect "search"-ish targets (but not "voice search").
+    t_text = target.get("text", "")
+    t_desc = target.get("desc", "")
+    tt = f"{t_text} {t_desc}".lower()
+    wants_search = "search" in tt and "voice" not in tt
+
     candidates = []
     for el in elements:
         score = 0
-        t = (el.get("text","") or "").lower()
-        d = (el.get("content-desc","") or "").lower()
-        i = (el.get("resource-id","") or "").lower()
+        raw_label = (el.get("text", "") or el.get("label", "") or "")
+        t  = raw_label.lower()
+        d  = (el.get("content-desc","") or el.get("content_desc","") or "").lower()
+        i  = (el.get("resource-id","")  or el.get("resource_id","")  or "").lower()
 
-        if "text" in target and target["text"].lower() in t:
-            score += 10 + (10 if t == target["text"].lower() else 0)
-        if "desc" in target and target["desc"].lower() in d:
-            score += 8
-        if "id" in target and target["id"].lower() in i:
-            score += 12
+        if wants_search:
+            # Never treat the voice-search mic as the search field.
+            if "voice search" in t or "voice search" in d:
+                continue
+
+        # Local ChatGPT web input tuning (your phone):
+        # - Strongly prefer the "Ask anything" textarea
+        # - Never treat the "Add files and more" plus button as the input
+        if "prompt-textarea" in i or "ask anything" in t:
+            score += 25
+        if "composer-plus-btn" in i or "add files and more" in t:
+            score -= 20
+
+        if "text" in target:
+            needle = target["text"].lower()
+            if needle in t:
+                score += 10 + (10 if t == needle else 0)
+        if "label" in target:
+            needle = target["label"].lower()
+            if needle in t:
+                score += 10 + (10 if t == needle else 0)
+        if "desc" in target:
+            needle = target["desc"].lower()
+            if needle in d:
+                score += 8
+        if "id" in target:
+            needle = target["id"].lower()
+            if needle in i:
+                score += 12
+
+        # Facebook composer tuning: when targeting the post text field,
+        # strongly prefer the big multi-line text area in the composer and
+        # avoid hitting other controls.
+        if target.get("desc") == "Post text field":
+            # Heuristic: large view in the middle of the composer with no
+            # resource-id but big bounds is likely the text area.
+            try:
+                bounds = el.get("bounds", "")
+                coords = bounds.replace("][", ",").replace("[", "").replace("]", "").split(",")
+                x1, y1, x2, y2 = map(int, coords)
+                h = y2 - y1
+            except Exception:
+                h = 0
+            if h > 200 and 0.2 < el.get("y_norm", 0.5) < 0.8:
+                score += 15
         if score > 0 and el.get("clickable"):
             score += 5
+        if score > 0 and el.get("editable"):
+            score += 3
+        if score > 0 and el.get("focused"):
+            score += 4
         if score > 0:
             candidates.append((score, el))
 
@@ -480,20 +599,52 @@ def pc_get_state(task=""):
                 "foreground_app": "unknown", "state_signature": "error"}
 
 def pc_do_action(action):
+    """Call wrangle's do_action CLI and parse the JSON result.
+
+    In some edge cases (especially for type actions) wrangle may complete
+    successfully but emit an empty stdout or non-JSON noise. In those cases
+    we treat the action as best-effort success instead of hard-failing the
+    whole IMPRINT run.
+
+    Note: `type` actions do more work inside wrangle (IME switch + UI dump),
+    so we give them a longer timeout than other actions to avoid spurious
+    failures on slower devices.
+    """
     try:
+        timeout = 60 if (action or {}).get("action") == "type" else 20
         r = subprocess.run([PYTHON, WRANGLE, "do_action", "--json", json.dumps(action)],
-                           capture_output=True, text=True, timeout=20)
-        return json.loads(r.stdout.strip())
+                           capture_output=True, text=True, timeout=timeout)
+        out = (r.stdout or "").strip()
+        if out:
+            try:
+                return json.loads(out)
+            except Exception as e:
+                # For type actions, assume success if the subprocess ran.
+                if action.get("action") == "type" and r.returncode == 0:
+                    return {"ok": True, "executed": "type", "text": action.get("text", "")}
+                return {"ok": False, "error": f"invalid json from wrangle: {e}"}
+        # No output at all — treat type as fire-and-forget success.
+        if action.get("action") == "type" and r.returncode == 0:
+            return {"ok": True, "executed": "type", "text": action.get("text", "")}
+        return {"ok": False, "error": "empty response from wrangle"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 def keyboard_open():
+    """Detect if soft keyboard is visible. Works across Android versions."""
     try:
         r = subprocess.run(
             f"adb -s localhost:{ADB_PORT} shell dumpsys input_method",
             shell=True, capture_output=True, text=True, timeout=8
         )
-        return "mInputShown=true" in r.stdout
+        out = r.stdout
+        # Android < 11: mInputShown=true
+        # Android 11+:  mIsInputViewShown=true  or  isInputShown=true
+        return (
+            "mInputShown=true" in out
+            or "mIsInputViewShown=true" in out
+            or "isInputShown=true" in out
+        )
     except Exception:
         return False
 
@@ -505,16 +656,19 @@ def input_focused(elements):
 
 # ── Step Execution ────────────────────────────────────────────────────────────
 
-def execute_one_step(step, elements, intent=""):
-    """Run one step. Returns structured result dict."""
+def execute_one_step(step, elements, intent="", hash_before=""):
+    """Run one step. Returns structured result dict.
+
+    hash_before — pass the screen hash already known to the caller to avoid
+                  a redundant pc_get_state() call on every step.
+    Returns dict with optional 'state_after' key when screen changed, so the
+    caller can reuse it without another UIAutomator dump.
+    """
     action = step.get("action", "")
     t0 = time.time()
 
     target_spec = step.get("target")
     resolved_el = resolve_element(elements, target_spec) if target_spec else None
-
-    state_before = pc_get_state(task=intent)
-    hash_before  = state_before.get("screen_hash", "")
 
     result = {
         "action": action, "target": str(target_spec or step.get("reason","")),
@@ -527,9 +681,99 @@ def execute_one_step(step, elements, intent=""):
         payload["x"] = resolved_el.get("x", step.get("x", 540))
         payload["y"] = resolved_el.get("y", step.get("y", 1170))
         log.debug(f"Resolved '{target_spec}' → ({payload['x']},{payload['y']}) text='{resolved_el.get('text','')}'")
+    elif target_spec and action == "tap":
+        # Resolver couldn't find a matching element; fall back to safe coords
+        # instead of passing no x/y and blowing up inside wrangle.
+        t_str = str(target_spec)
+        # Facebook "Create post" heuristic: tap the feed composer row, not
+        # the people/music row. Empirically at ~y=680 on this device.
+        if "Create post" in t_str or "What's on your mind" in t_str:
+            cx, cy = 540, 681
+        else:
+            cx = step.get("x") or (elements[0]["x"] if elements else 540)
+            cy = step.get("y") or (elements[0]["y"] if elements else 1170)
+        payload["x"], payload["y"] = int(cx), int(cy)
+        log.debug(
+            f"Target '{target_spec}' not found in {len(elements)} elements — "
+            f"using fallback coords ({payload['x']},{payload['y']})"
+        )
+
+    # Special-case: on ChatGPT web, pressing Enter adds a newline instead of
+    # sending. If this step is a KEYCODE_ENTER and we see a visible "Send"
+    # button (composer-submit-button), convert the action into a tap on that
+    # button instead of a keyevent.
+    if action == "keyevent" and step.get("key") == "KEYCODE_ENTER":
+        send_el = None
+        for el in elements:
+            rid = (el.get("resource-id") or el.get("resource_id") or "").lower()
+            lbl = (el.get("text") or el.get("label") or "").lower()
+            if "composer-submit-button" in rid or "send prompt" in lbl or lbl == "send":
+                send_el = el
+                break
+        if send_el:
+            payload = {"action": "tap", "x": int(send_el["x"]), "y": int(send_el["y"])}
+            action = "tap"
+            log.debug(
+                f"Converted Enter keyevent into tap on send button at "
+                f"({payload['x']},{payload['y']}) label='{send_el.get('text','')}'"
+            )
 
     if action == "type" and not input_focused(elements) and not keyboard_open():
         log.debug("No focused input before type — proceeding anyway")
+
+    # Facebook composer special-case: if this is the "publish" tap for a
+    # post, many builds require tapping a "Done" control before tapping
+    # the final "Post" button. On your device the labels can vary slightly,
+    # so we treat anything with text/id containing "done" as Done, and
+    # anything with text/id containing "post" as Post.
+    if action == "tap" and "post" in str(step.get("target", "")).lower():
+        try:
+            done_el, post_el = None, None
+            for el in elements:
+                txt = (el.get("text") or el.get("label") or "").strip().lower()
+                rid = (el.get("resource-id") or el.get("resource_id") or "").lower()
+                x_n = float(el.get("x_norm", 0.5) or 0.5)
+                y_n = float(el.get("y_norm", 0.5) or 0.5)
+                # Prefer top-right clickable as Done
+                if ("done" in txt or "done" in rid) and el.get("clickable") and x_n > 0.6 and y_n < 0.25:
+                    done_el = el
+                # Prefer bottom-right clickable as Post
+                if ("post" in txt or "post" in rid) and el.get("clickable") and x_n > 0.6 and y_n > 0.6:
+                    post_el = el
+            if done_el and post_el:
+                pc_do_action({"action": "tap", "x": int(done_el["x"]), "y": int(done_el["y"])} )
+                time.sleep(0.4)
+                pc_do_action({"action": "tap", "x": int(post_el["x"]), "y": int(post_el["y"])} )
+                result["success"] = True
+                result["screen_changed"] = True
+                result["duration_ms"] = int((time.time() - t0) * 1000)
+                return result
+        except Exception:
+            pass
+
+    # ChatGPT app special-case: when we intend to tap the send control but the
+    # LLM only described it ("Send button at the bottom right" / "send control"),
+    # pick the most bottom-right clickable element rather than tapping inside
+    # the prompt textbox.
+    if (action == "tap" and
+        ("send" in (step.get("reason", "").lower()) or "send control" in str(step.get("target", "")).lower())):
+        try:
+            best = None
+            best_score = -1.0
+            for el in elements:
+                if not el.get("clickable"):
+                    continue
+                x_n = float(el.get("x_norm", 0.5) or 0.5)
+                y_n = float(el.get("y_norm", 0.5) or 0.5)
+                # Encourage mid-right; send icon on your device sits around the middle-right edge
+                score = (x_n * 0.7) + (y_n * 0.3)
+                if 0.4 < y_n < 0.8 and x_n > 0.8 and score > best_score:
+                    best = el
+                    best_score = score
+            if best is not None:
+                payload["x"], payload["y"] = int(best["x"]), int(best["y"])
+        except Exception:
+            pass
 
     exec_r = pc_do_action(payload)
     result["duration_ms"] = int((time.time() - t0) * 1000)
@@ -538,13 +782,53 @@ def execute_one_step(step, elements, intent=""):
         result["error"] = exec_r.get("error", "unknown")
         return result
 
-    time.sleep(step.get("delay", 1.0))
+    # Chrome-specific fallback: sometimes KEYCODE_ENTER in the address bar
+    # does not trigger navigation even though text is present. If this was
+    # an Enter keyevent, the foreground app is Chrome, and the screen hash
+    # did not change, fall back to opening a Google search URL for the
+    # apparent query instead of leaving the text inert in the bar.
+    if (action == "keyevent" and step.get("key") == "KEYCODE_ENTER" and
+        hash_before and phone_state.get("foreground_app","")):
+        fg = phone_state["foreground_app"]
+        if "com.android.chrome" in fg or "chrome" in fg.lower():
+            # Heuristic: pull query from the original intent.
+            q = ""
+            intent_l = (intent or "").strip()
+            m = re.search(r"(?:search for|type)\s+(.+)$", intent_l, flags=re.I)
+            if m:
+                q = m.group(1).strip()
+            else:
+                parts = intent_l.split()
+                if len(parts) >= 2:
+                    q = " ".join(parts[-2:])
+            if q:
+                url = "https://www.google.com/search?q=" + urllib.parse.quote(q)
+                pc_do_action({"action": "open_url", "url": url})
+                result["screen_changed"] = True
+                result["hash_after"] = "chrome_search_fallback"
+                return result
 
-    if action in ("tap","swipe","scroll","launch","back","keyevent"):
+    DEFAULT_DELAYS = {
+        "launch":   2.5,
+        "open_url": 2.5,
+        "tap":      1.0,
+        "swipe":    0.6,
+        "scroll":   0.6,
+        "keyevent": 0.5,
+        "back":     0.8,
+        "type":     0.4,
+    }
+    default_delay = DEFAULT_DELAYS.get(action, 1.0)
+    time.sleep(step.get("delay", default_delay))
+
+    if action in ("tap","swipe","scroll","launch","open_url","back","keyevent","type"):
         state_after = pc_get_state(task=intent)
         hash_after  = state_after.get("screen_hash", "")
-        result["hash_after"]      = hash_after
-        result["screen_changed"]  = bool(hash_after and hash_after != hash_before and hash_after != "error")
+        result["hash_after"]     = hash_after
+        result["screen_changed"] = bool(hash_after and hash_after != hash_before and hash_after != "error")
+        if result["screen_changed"]:
+            # Return the fresh state so the caller can reuse it without another dump
+            result["state_after"] = state_after
         if action == "tap" and not result["screen_changed"]:
             log.debug(f"Tap at step — screen unchanged (may be normal)")
 
@@ -573,6 +857,9 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
     """
     Execute steps with retry, mid-task replan, timeout, and max-steps guard.
 
+    Also applies small, intent-aware post-processing tweaks, e.g. for
+    search-like tasks that type into a field but forget to submit.
+
     confirmed=True   — skip destructive safety prompt (OpenClaw dispatcher mode)
     interactive=True — prompt human via stdin if not confirmed (default for CLI use)
                        set False when called from dispatch context to fail-safe instead
@@ -581,6 +868,22 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
     """
     if params:
         steps = hydrate(steps, params)
+
+    # Auto-add a submit step for search-like intents that only type text
+    # but never submit it. This keeps simple "search for X" flows usable
+    # even when the planner forgets an Enter key.
+    intent_l = (intent or "").lower()
+    if ("search" in intent_l or "look up" in intent_l or
+        "address bar" in intent_l or "search bar" in intent_l):
+        has_type = any((s.get("action") == "type") for s in steps)
+        has_submit = any(s.get("action") in ("keyevent", "open_url") for s in steps)
+        if has_type and not has_submit:
+            steps = list(steps) + [{
+                "action": "keyevent",
+                "key": "KEYCODE_ENTER",
+                "reason": "submit search",
+                "delay": 0.5,
+            }]
 
     # Safety gate — block or prompt on destructive intents
     if is_destructive(intent) and not confirmed:
@@ -598,6 +901,7 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
 
     step_results = []
     steps_taken  = 0
+    consecutive_step_failures = 0
     deadline     = task_deadline or (time.time() + TASK_TIMEOUT)
 
     print(f"  ⚡ Executing {len(steps)} steps...")
@@ -605,6 +909,7 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
     state    = pc_get_state(task=intent)
     elements = state.get("elements", [])
     init_hash = state.get("screen_hash","")
+    current_hash = init_hash
 
     # Drift check
     first_hash = steps[0].get("screen_hash_before") if steps else None
@@ -629,9 +934,10 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
                 time.sleep(1.0)
                 state    = pc_get_state(task=intent)
                 elements = state.get("elements", [])
+                current_hash = state.get("screen_hash", current_hash)
 
-            sr = execute_one_step(step, elements, intent=intent)
-            steps_taken += 1
+            # Pass current hash so execute_one_step doesn't need to fetch state again
+            sr = execute_one_step(step, elements, intent=intent, hash_before=current_hash)
             step_results.append(sr)
 
             if plan_id_str:
@@ -640,38 +946,56 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
 
             if sr["success"]:
                 step_ok = True
-                if sr["screen_changed"]:
+                # Reuse state_after returned by execute_one_step if available
+                if sr.get("state_after"):
+                    state    = sr["state_after"]
+                    elements = state.get("elements", [])
+                    current_hash = state.get("screen_hash", sr["hash_after"])
+                elif sr["screen_changed"]:
                     state    = pc_get_state(task=intent)
                     elements = state.get("elements", [])
+                    current_hash = state.get("screen_hash", current_hash)
+                else:
+                    current_hash = sr.get("hash_after", current_hash)
                 break
             last_err = sr["error"]
 
+        # steps_taken counts logical steps, not retry attempts
+        steps_taken += 1
+
         if not step_ok:
+            consecutive_step_failures += 1
             print(f"  ❌ Step {i+1} failed after {MAX_RETRIES} retries: {last_err}")
 
-            # Mid-task replan
-            remaining = [s for s in steps[i:] if s.get("action") != "done"]
-            if remaining and OPENCLAW_SESSION:
-                print(f"  🔄 Mid-task replan for {len(remaining)} remaining steps...")
-                replan_t0 = time.time()
-                cur_state = pc_get_state(task=intent)
-                revised, r_tok, r_ms = ask_llm_replan(intent, step, cur_state, remaining)
-                if revised:
-                    print(f"  ↺ Replan: {len(revised)} revised steps")
-                    r_suc, _, r_err, r_steps, r_results = execute_steps(
-                        conn, revised, intent=intent,
-                        plan_id_str=plan_id_str, task_deadline=deadline
-                    )
-                    step_results.extend(r_results)
-                    steps_taken += r_steps
-                    if r_suc:
-                        replan_ms = int((time.time() - replan_t0) * 1000)
-                        log_task(conn, intent, "", "replan", plan_id_str, 0.0, 1,
-                                 r_tok, replan_ms, steps_taken)
-                        return True, False, None, steps_taken, step_results
-                    last_err = r_err
+            # Mid-task replan — only fire after 2 consecutive step failures to avoid
+            # burning tokens on transient issues (slow load, mid-transition screen, etc.)
+            if consecutive_step_failures >= 2:
+                remaining = [s for s in steps[i:] if s.get("action") != "done"]
+                if remaining and OPENCLAW_SESSION:
+                    print(f"  🔄 Mid-task replan ({consecutive_step_failures} consecutive failures)...")
+                    replan_t0 = time.time()
+                    cur_state = state  # reuse state we already have
+                    revised, r_tok, r_ms = ask_llm_replan(intent, step, cur_state, remaining)
+                    if revised:
+                        print(f"  ↺ Replan: {len(revised)} revised steps")
+                        r_suc, _, r_err, r_steps, r_results = execute_steps(
+                            conn, revised, intent=intent,
+                            plan_id_str=plan_id_str, task_deadline=deadline
+                        )
+                        step_results.extend(r_results)
+                        steps_taken += r_steps
+                        if r_suc:
+                            replan_ms = int((time.time() - replan_t0) * 1000)
+                            log_task(conn, intent, "", "replan", plan_id_str, 0.0, 1,
+                                     r_tok, replan_ms, steps_taken)
+                            return True, False, None, steps_taken, step_results
+                        last_err = r_err
+            else:
+                print(f"  ⏭  Skipping replan (need 2 consecutive failures, have {consecutive_step_failures})")
 
             return False, False, f"step {i+1} ({step.get('action')}): {last_err}", steps_taken, step_results
+        else:
+            consecutive_step_failures = 0  # reset on success
 
     return True, False, None, steps_taken, step_results
 
@@ -680,12 +1004,23 @@ def execute_steps(conn, steps, intent="", plan_id_str=None, params=None,
 PLAN_SYSTEM = """You are a planning engine for an Android phone automation agent.
 Decompose tasks into minimal abstract parameterized steps.
 RULES:
-- Use {slot} placeholders for variable content (contacts, messages, etc.)
+- Use {slot} placeholders for variable content (contacts, messages, search queries, etc.)
 - Prefer element targeting via text/id/desc over raw x/y coordinates
-- Valid actions: launch, tap, type, swipe, scroll, back, keyevent, done
+- Valid actions: launch, open_url, tap, type, swipe, scroll, back, keyevent, done
 - Every step needs: action, reason, delay (float seconds)
 - Always end with {"action":"done","reason":"..."}
-- Return ONLY a JSON array. No markdown. No explanation."""
+- For web searches or specific URLs, prefer open_url over launch+tap+type
+- Return ONLY a JSON array. No markdown. No explanation.
+
+Action reference:
+  launch:   {"action":"launch","app":"youtube","reason":"...","delay":2.5}
+  open_url: {"action":"open_url","url":"https://...","reason":"...","delay":2.5}
+  tap:      {"action":"tap","target":{"text":"Search"},"reason":"...","delay":1.0}
+  type:     {"action":"type","text":"{query}","reason":"...","delay":0.5}
+  keyevent: {"action":"keyevent","key":"KEYCODE_ENTER","reason":"...","delay":0.5}
+  scroll:   {"action":"scroll","direction":"down","amount":800,"reason":"...","delay":0.6}
+  swipe:    {"action":"swipe","x1":540,"y1":1400,"x2":540,"y2":600,"ms":300,"reason":"...","delay":0.6}
+  back:     {"action":"back","reason":"...","delay":0.8}"""
 
 def _ask_openclaw(prompt, timeout=60):
     """
@@ -747,13 +1082,28 @@ Example target: {{"text":"Send"}}, {{"id":"send_button"}}, {{"desc":"Search"}}""
         return None, f"JSON parse error: {e}", tok, ms
 
 def ask_llm_replan(intent, failed_step, current_state, remaining_steps):
-    elements = current_state.get("elements", [])[:15]
+    # Use same compact format as ask_llm_for_plan — raw elements are ~20 fields each
+    compact_elements = []
+    for el in current_state.get("elements", [])[:15]:
+        e = {}
+        if el.get("text") or el.get("label"):
+            e["text"] = el.get("text") or el.get("label")
+        rid = el.get("resource-id") or el.get("resource_id","")
+        if rid: e["id"] = rid.split("/")[-1]
+        desc = el.get("content-desc") or el.get("content_desc","")
+        if desc: e["desc"] = desc
+        if el.get("clickable"): e["click"] = True
+        if el.get("editable"):  e["edit"]  = True
+        if el.get("focused"):   e["focused"] = True
+        if el.get("x"):         e["x"], e["y"] = el["x"], el["y"]
+        if e: compact_elements.append(e)
+
     prompt = f"""{PLAN_SYSTEM}
 
 Task: {intent}
 Failed step: {json.dumps(failed_step)}
 Current app: {current_state.get("foreground_app","unknown")}
-Current UI: {json.dumps(elements)}
+Current UI: {json.dumps(compact_elements)}
 Remaining planned: {json.dumps(remaining_steps)}
 
 Provide ONLY revised remaining steps as JSON array to complete the task from current screen."""
@@ -789,6 +1139,20 @@ def route(intent, conn, dry_run=False, confirmed=False):
     print(f"{'='*54}")
 
     plan, sim = search_cache(conn, intent)
+
+    # If this intent specifies an app (via {app}) and the stored plan has a
+    # different foreground app context (e.g. settings vs chrome), treat it
+    # as a cache miss so we don't reuse a "scroll in settings" plan for
+    # "open chrome and scroll".
+    if plan and params.get("app") and plan.get("context"):
+        try:
+            target_pkg = resolve_app(conn, params["app"])
+            plan_ctx   = str(plan["context"]).strip()
+            if plan_ctx and target_pkg and plan_ctx != target_pkg:
+                print(f"\n⚠️  Cache plan context '{plan_ctx}' != target app '{target_pkg}' — ignoring plan")
+                plan, sim = None, 0.0
+        except Exception:
+            pass
 
     if plan:
         trusted = bool(plan["trusted"])
@@ -868,10 +1232,14 @@ def route(intent, conn, dry_run=False, confirmed=False):
         ms = int((time.time()-t0)*1000)
 
         if success:
+            # Use the logical app parameter as context when available so
+            # app-specific plans (e.g. "open settings and scroll") are not
+            # reused for different apps (e.g. "open chrome and scroll").
+            ctx = params.get("app") or phone_state.get("foreground_app")
             pid, newly_trusted = store_or_confirm(
                 conn, intent, steps,
                 param_slots=list(params.keys()),
-                context=phone_state.get("foreground_app")
+                context=ctx
             )
             log_task(conn, intent, template, "llm", pid, 0.0, 1, tokens, ms, steps_taken)
             trust_msg = "TRUSTED" if newly_trusted else f"PENDING (1/{N_CONFIRM})"
