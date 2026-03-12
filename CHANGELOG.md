@@ -1,17 +1,24 @@
 # Changelog
 
+## [2.0.1] - 2026-03-12
+### Changed
+- Synced repository documentation/site content with current `wrangle.py` and `imprint.py` behavior.
+- Updated defaults and examples to use `ADB_PORT=45171`.
+- Updated contract docs to include `open_url` action and clarify legacy `llm_key_missing` semantics.
+- Updated contribution guide to Python-based setup/check workflow.
+
 ## [2.0.0] - 2026-03-11
 ### Added
-- **Parameterized Skills**: Allows for dynamic skill parameters.
-- **Element-Based Targeting**: Target elements directly based on attributes.
-- **Confirmation Threshold**: Set a threshold for confirmations.
-- **Per-Step Retry Logic**: Retry logic introduced for each task step.
-- **Mid-Task Replan**: Ability to replan tasks mid-execution.
-- **Screen Transition Detection**: Automatically detect transitions between screens.
-- **Keyboard/Focus Detection**: Monitor keyboard input and focus changes.
-- **Task Timeout and Max Steps Guard**: Configure timeouts for tasks with maximum steps limit.
-- **Installed Apps Auto-Discovery**: Auto-discover installed applications.
-- **Debug Mode Logging**: Enhanced logging in debug mode for better insights.
+- Parameterized skills with reusable slots.
+- Element-based targeting by text/id/desc.
+- Confirmation threshold before trusted plan promotion.
+- Per-step retry logic and structured step results.
+- Mid-task replan path.
+- Screen transition detection after actions.
+- Keyboard/focus checks before typing.
+- Task timeout and max-step safeguards.
+- Installed app auto-discovery.
+- Debug mode logging.
 
-## [1.0.0] - Initial Release
-- Initial release with core functionalities.
+## [1.0.0]
+- Initial release.

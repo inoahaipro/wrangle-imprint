@@ -1,50 +1,29 @@
-# Contributing to Wrangle Imprint
+# Contributing to wrangle-imprint
 
-Thank you for considering contributing to the project! We're excited to have you here.
+Thanks for contributing.
 
-## Contribution Guidelines
+## Development setup
 
-- Please ensure your contributions align with our project's goals.
-- If you are reporting a bug, please include steps to reproduce the issue.
-- For feature requests, provide a clear description of the feature you'd like to see.
+```bash
+git clone https://github.com/inoahaipro/wrangle-imprint.git
+cd wrangle-imprint
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 
-## Development Setup
+## Validate before opening a PR
 
-To set up your development environment, follow these steps:
+```bash
+python -m py_compile wrangle.py imprint.py
+python wrangle.py check
+python imprint.py check
+```
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/inoahaipro/wrangle-imprint.git
-   cd wrangle-imprint
-   ```
+If you changed docs or the static site, keep `README.md`, `CONTRACT.md`, and `index.html` aligned with current behavior.
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
+## Pull requests
 
-3. **Run the development server:**
-   ```bash
-   npm start
-   ```
-
-## Pull Request Process
-
-1. **Fork the repository** and create your feature branch:
-   ```bash
-   git checkout -b feature/YourFeature
-   ```
-
-2. **Commit your changes:**
-   ```bash
-   git commit -m "Add your message here"
-   ```
-
-3. **Push to the branch:**
-   ```bash
-   git push origin feature/YourFeature
-   ```
-
-4. **Open a Pull Request** and describe your changes clearly.
-
-Thank you for contributing!
+- Use clear, scoped commits.
+- Explain user-visible behavior changes and any contract changes.
+- Include command output for checks you ran.
