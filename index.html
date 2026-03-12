@@ -1083,10 +1083,10 @@
 
 <span class="c-comment"># Expected output:</span>
 <span class="c-flag">── wrangle setup check ──
-✅ ADB: localhost:34371 connected
+✅ ADB: localhost:45171 connected
 ✅ ADBKeyboard: active
 ✅ CEREBRAS_KEY: set (for wrangle LLM tracks)
-✅ OPENCLAW CLI/session: available (for imprint planning)</span></pre>
+✅ OpenClaw: session='main' reachable (for imprint planning)</span></pre>
           </div>
           <div class="qs-content" id="tab-first-run">
             <pre class="code-block"><span class="c-comment"># First run — cache miss, LLM plans it</span>
@@ -1103,16 +1103,14 @@
 <span class="c-cmd">python</span> imprint.py stats</pre>
           </div>
           <div class="qs-content" id="tab-env">
-            <pre class="code-block"><span class="c-comment"># Copy and fill in .env.example</span>
-<span class="c-cmd">cp</span> env.example .env
-
-<span class="c-comment"># Key settings</span>
-<span class="c-key">OPENCLAW_SESSION</span>=main  <span class="c-comment"># required for IMPRINT planning</span>
-<span class="c-key">CEREBRAS_KEY</span>=csk-...  <span class="c-comment"># optional for direct wrangle text/browser tracks</span>
+            <pre class="code-block"><span class="c-comment"># Key settings (export in your shell profile)</span>
+<span class="c-key">OPENCLAW_SESSION</span>=main  <span class="c-comment"># session used by imprint planning</span>
+<span class="c-key">CEREBRAS_KEY</span>=csk-...  <span class="c-comment"># optional for direct wrangle browser/text tracks</span>
 <span class="c-key">IMPRINT_THRESHOLD</span>=0.72  <span class="c-comment"># cache match strictness</span>
 <span class="c-key">IMPRINT_CONFIRM</span>=2  <span class="c-comment"># runs before "trusted"</span>
 <span class="c-key">IMPRINT_MAX_STEPS</span>=20  <span class="c-comment"># safety cap</span>
 <span class="c-key">IMPRINT_DEBUG</span>=1  <span class="c-comment"># verbose logging</span>
+<span class="c-key">ADB_PORT</span>=45171  <span class="c-comment"># default in current code</span>
 <span class="c-key">DEVICE_WIDTH</span>=1080  <span class="c-comment"># your screen res</span>
 <span class="c-key">DEVICE_HEIGHT</span>=2340  <span class="c-comment"># S22+ default</span>
 
@@ -1130,7 +1128,7 @@
       <div class="cta-right">
         <div class="cta-line">
           <span class="cta-icon">→</span>
-          <span>Tested on Samsung S22+ running Termux. Python 3.11+ required. ADB over localhost:34371.</span>
+          <span>Tested on Samsung S22+ running Termux. Python 3.11+ required. ADB over localhost:45171.</span>
         </div>
         <div class="cta-line">
           <span class="cta-icon">→</span>
