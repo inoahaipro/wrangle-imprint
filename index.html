@@ -5,16 +5,272 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Token Firewall — zero‑token AI gateway</title>
   <meta name="description" content="Token Firewall sits between your client and your LLM. Cache hits are 0 tokens, cache misses teach it new skills. With device hands for Android and desktop." />
-  <!-- Keep the same font + styling vibe as the legacy page -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
   <style>
-    /* Reuse the legacy styles as-is so the look stays the same */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:#080808;--surface:#0f0f0f;--border:#1e1e1e;--border2:#2a2a2a;
+      --accent:#ff4400;--accent2:#ff6633;--text:#e2e2e2;--muted:#777;
+      --code-bg:#0d0d0d;--green:#39d353;--amber:#f0a500;
+    }
+    body {
+      background:var(--bg);color:var(--text);
+      font-family:'DM Mono',monospace;font-size:14px;line-height:1.6;
+    }
+    body::before {
+      content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+      background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    }
+    a{color:var(--accent2);text-decoration:none;}a:hover{text-decoration:underline;}
+    nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;align-items:center;justify-content:space-between;padding:18px 40px;border-bottom:1px solid var(--border);background:rgba(8,8,8,0.92);backdrop-filter:blur(8px);} 
+    .nav-logo{font-family:'Unbounded',sans-serif;font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#fff;text-decoration:none;}
+    .nav-logo span{color:var(--accent);} 
+    nav ul{list-style:none;display:flex;gap:24px;align-items:center;} 
+    nav ul a{color:var(--muted);font-size:11px;letter-spacing:.12em;text-transform:uppercase;} 
+    .nav-cta{border:1px solid var(--accent);padding:6px 14px;color:var(--accent)!important;} 
+    .hero{min-height:100vh;display:grid;grid-template-columns:1.1fr .9fr;gap:60px;align-items:center;padding:120px 40px 80px;border-bottom:1px solid var(--border);} 
+    .hero-left{max-width:560px;} 
+    .hero-tag{display:inline-flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);border:1px solid rgba(255,68,0,.3);padding:5px 12px;margin-bottom:28px;} 
+    .hero-tag::before{content:'';width:6px;height:6px;border-radius:999px;background:var(--accent);animation:pulse 2s ease-in-out infinite;} 
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}} 
+    .hero h1{font-family:'Unbounded',sans-serif;font-size:clamp(36px,5vw,64px);font-weight:900;letter-spacing:-.02em;line-height:1.05;margin-bottom:20px;} 
+    .hero h1 em{font-style:normal;color:var(--accent);} 
+    .hero-sub{font-size:14px;color:#aaa;max-width:430px;line-height:1.8;margin-bottom:32px;} 
+    .hero-actions{display:flex;flex-wrap:wrap;gap:16px;} 
+    .btn-primary,.btn-ghost{display:inline-flex;align-items:center;gap:8px;font-size:12px;letter-spacing:.12em;text-transform:uppercase;} 
+    .btn-primary{background:var(--accent);color:#fff;padding:11px 22px;} 
+    .btn-primary:hover{background:var(--accent2);} 
+    .btn-ghost{color:var(--muted);border-bottom:1px solid var(--border2);padding:11px 0;} 
+    .terminal{background:var(--code-bg);border:1px solid var(--border2);} 
+    .terminal-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid var(--border);} 
+    .dot{width:9px;height:9px;border-radius:50%;} .dot-r{background:#ff5f56;} .dot-y{background:#ffbd2e;} .dot-g{background:#27c93f;} 
+    .terminal-label{margin-left:6px;font-size:11px;color:var(--muted);} 
+    .terminal-body{padding:18px;white-space:pre;overflow-x:auto;font-size:13px;} 
+    .t-muted{color:#555;} .t-key{color:var(--amber);} .t-ok{color:var(--green);} .t-accent{color:var(--accent2);} 
+    .cursor{display:inline-block;width:8px;height:14px;background:var(--accent);vertical-align:middle;animation:blink 1s step-end infinite;} 
+    @keyframes blink{0%,100%{opacity:1;}50%{opacity:0;}}
+    .section{border-bottom:1px solid var(--border);} 
+    .section-inner{max-width:1100px;margin:0 auto;padding:72px 40px;} 
+    .section-tag{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;} 
+    .section-title{font-family:'Unbounded',sans-serif;font-size:clamp(24px,3vw,36px);margin-bottom:18px;} 
+    .section-body{color:#999;max-width:540px;line-height:1.8;font-size:13px;} 
+    .arch{background:var(--code-bg);border:1px solid var(--border2);padding:24px;font-size:13px;white-space:pre;overflow-x:auto;margin-top:32px;} 
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--border);} 
+    .stat{padding:28px 40px;border-right:1px solid var(--border);} .stat:last-child{border-right:none;} 
+    .stat-num{font-family:'Unbounded',sans-serif;font-size:28px;margin-bottom:4px;} .stat-num span{color:var(--accent);} 
+    .stat-label{font-size:11px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase;} 
+    .quick-grid{display:grid;grid-template-columns:260px 1fr;border:1px solid var(--border2);margin-top:40px;} 
+    .qs-nav{border-right:1px solid var(--border2);padding:8px 0;} 
+    .qs-tab{display:block;width:100%;padding:10px 18px;background:none;border:none;color:var(--muted);font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.08em;text-align:left;cursor:pointer;} 
+    .qs-tab.active{color:var(--text);border-left:2px solid var(--accent);background:#0d0d0d;} 
+    .qs-pane{display:none;} .qs-pane.active{display:block;} 
+    pre.code{background:var(--code-bg);margin:0;padding:24px;font-size:12px;overflow-x:auto;}
+    footer{padding:32px 40px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:12px;color:#444;}
+    .footer-logo{font-family:'Unbounded',sans-serif;font-size:12px;font-weight:700;}
+    .footer-logo span{color:var(--accent);} 
+    .footer-links{list-style:none;display:flex;gap:20px;}
+    @media(max-width:900px){
+      nav{padding:14px 20px;} nav ul li:not(:last-child){display:none;}
+      .hero{grid-template-columns:1fr;padding:92px 20px 48px;gap:32px;}
+      .section-inner{padding:48px 20px;}
+      .stats{grid-template-columns:1fr 1fr;} .stat{padding:20px;border-right:none;border-bottom:1px solid var(--border);} .stat:last-child{border-bottom:none;}
+      .quick-grid{grid-template-columns:1fr;} .qs-nav{display:flex;overflow-x:auto;border-right:none;border-bottom:1px solid var(--border2);} .qs-tab{border-left:none;border-bottom:2px solid transparent;white-space:nowrap;} .qs-tab.active{border-bottom-color:var(--accent);} pre.code{white-space:pre-wrap;}
+      footer{flex-direction:column;gap:12px;text-align:center;}
+    }
   </style>
 </head>
 <body>
-  <h1>Token Firewall</h1>
-  <p>This is a placeholder. The full UI now lives at <code>/ui</code> inside the Token Firewall server.</p>
+  <nav>
+    <a class="nav-logo" href="#">TOKEN<span> FIREWALL</span></a>
+    <ul>
+      <li><a href="#how">how it works</a></li>
+      <li><a href="#quickstart">quickstart</a></li>
+      <li><a class="nav-cta" href="https://github.com/inoahaipro/token_firewall" target="_blank">GitHub ↗</a></li>
+    </ul>
+  </nav>
+
+  <section class="hero">
+    <div class="hero-left">
+      <div class="hero-tag">token firewall · v3 · zero‑token gateway</div>
+      <h1>teach the model once.<br/><em>replay for free.</em></h1>
+      <p class="hero-sub">
+        Token Firewall sits between your client and your LLM. Cache hits are
+        <strong>0 tokens</strong>, cache misses teach it new skills. It can also
+        execute real <strong>device actions</strong> via Android and desktop
+        "hands", with a built‑in chat UI at <code>/ui</code>.
+      </p>
+      <div class="hero-actions">
+        <a class="btn-primary" href="https://github.com/inoahaipro/token_firewall" target="_blank">↗ View on GitHub</a>
+        <a class="btn-ghost" href="#quickstart">quickstart →</a>
+      </div>
+    </div>
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot dot-r"></span>
+        <span class="dot dot-y"></span>
+        <span class="dot dot-g"></span>
+        <span class="terminal-label">token-firewall · /v1/chat/completions</span>
+      </div>
+      <div class="terminal-body">
+<span class="t-muted">$ </span>curl -s -X POST <span class="t-accent">http://localhost:8000/v1/chat/completions</span> \
+  -H "Content-Type: application/json" \
+  -d '{"model":"firewall","messages":[{"role":"user","content":"open spotify"}]}'
+
+<span class="t-muted">→ </span><span class="t-key">source</span>: "cache"   <span class="t-key">tokens</span>: 0   <span class="t-key">platform</span>: "android"   
+<span class="t-ok">✅ actions executed via hands</span><span class="cursor"></span>
+      </div>
+    </div>
+  </section>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-num">0<span>tok</span></div>
+      <div class="stat-label">on cache hits</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">2<span>tiers</span></div>
+      <div class="stat-label">packs + learned memory</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">5<span>+</span></div>
+      <div class="stat-label">platforms (planned)</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">/ui</div>
+      <div class="stat-label">built‑in chat interface</div>
+    </div>
+  </div>
+
+  <section id="how" class="section">
+    <div class="section-inner">
+      <div class="section-tag">// how it works</div>
+      <h2 class="section-title">Firewall first. LLM as a fallback.</h2>
+      <p class="section-body">
+        Token Firewall speaks the OpenAI API so your client doesn’t have to
+        change. Under the hood it routes requests through an intent engine,
+        a two‑tier cache (static packs + learned entries), and platform hands
+        that can actually do things on devices. Only when there’s no good
+        answer or plan does it call your underlying LLM.
+      </p>
+      <div class="arch">
+client (OpenClaw / CLI / web UI)
+    │
+    ▼
+server.py  (FastAPI · SSE · /v1/chat/completions)
+    │
+    ▼
+FirewallRouter
+    ├── IntentEngine      · classify prompt · split tasks
+    ├── KnowledgeStore    · packs + learned SQLite cache
+    ├── PlatformHands     · execute device actions
+    │     ├── AndroidHands   (Termux API + ADB)
+    │     ├── DesktopHands   (shell)
+    │     └── IOSHands       (future)
+    └── LLMAdapter        · fallback chain of models
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart" class="section">
+    <div class="section-inner">
+      <div class="section-tag">// quickstart</div>
+      <h2 class="section-title">running locally in a few commands.</h2>
+      <p class="section-body">
+        Token Firewall is designed to run close to your agents: Termux on
+        Android, or a normal shell on desktop. Point your OpenAI‑compatible
+        client at it and let it worry about caching, routing, and device
+        actions.
+      </p>
+
+      <div class="quick-grid">
+        <div class="qs-nav">
+          <button class="qs-tab active" data-tab="android">01 · Android / Termux</button>
+          <button class="qs-tab" data-tab="desktop">02 · Desktop</button>
+          <button class="qs-tab" data-tab="openclaw">03 · OpenClaw</button>
+        </div>
+        <div>
+          <div class="qs-pane active" id="pane-android">
+            <pre class="code"># In Termux
+pkg update && pkg install python android-tools termux-api
+pip install fastapi "uvicorn[standard]"
+
+# Clone and run
+cd ~
+git clone https://github.com/inoahaipro/token_firewall.git
+cd token_firewall
+
+# Configure your upstream model
+nano ~/.token-firewall.env
+#   TF_LLM_BASE_URL=...
+#   TF_LLM_API_KEY=...
+#   TF_LLM_MODEL=...
+
+bash start.sh
+# → serves /v1/chat/completions and /ui on http://127.0.0.1:8000</pre>
+          </div>
+          <div class="qs-pane" id="pane-desktop">
+            <pre class="code"># On Linux/macOS/WSL
+python -m venv venv
+source venv/bin/activate
+pip install fastapi "uvicorn[standard]"
+
+cd ~/code
+git clone https://github.com/inoahaipro/token_firewall.git
+cd token_firewall
+
+export TF_LLM_BASE_URL=https://api.openai.com/v1
+export TF_LLM_API_KEY=sk-...
+export TF_LLM_MODEL=gpt-4.1-mini
+
+python server.py
+# UI: http://127.0.0.1:8000/ui</pre>
+          </div>
+          <div class="qs-pane" id="pane-openclaw">
+            <pre class="code"># Add Token Firewall as a provider in ~/.openclaw/openclaw.json
+"models": {
+  "providers": {
+    "token-firewall": {
+      "baseUrl": "http://127.0.0.1:8000/v1",
+      "apiKey": "none",
+      "api": "openai-completions",
+      "models": [
+        { "id": "firewall", "name": "Token Firewall", "input": ["text"] }
+      ]
+    }
+  }
+}
+
+# Then pick it as your model in OpenClaw and chat as usual.
+# Cache hits will stay local, misses will go out to your LLM.
+</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="footer-logo">TOKEN<span> FIREWALL</span></div>
+    <ul class="footer-links">
+      <li><a href="https://github.com/inoahaipro/token_firewall" target="_blank">GitHub</a></li>
+      <li><a href="https://github.com/inoahaipro/token_firewall/blob/main/README.md" target="_blank">README</a></li>
+      <li><a href="https://github.com/inoahaipro/token_firewall/blob/main/CONTRACT.md" target="_blank">Contract</a></li>
+    </ul>
+    <div>MIT License · 2026</div>
+  </footer>
+
+  <script>
+    document.querySelectorAll('.qs-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.qs-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.qs-pane').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('pane-' + tab).classList.add('active');
+      });
+    });
+  </script>
 </body>
 </html>
