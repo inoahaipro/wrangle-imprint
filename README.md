@@ -1,110 +1,118 @@
-# wrangle-imprint v2.0.0
+# Token Firewall v3
 
-`wrangle-imprint` is a local Android automation stack made of two Python files:
+Zero-token AI gateway. Sits between OpenClaw (or any OpenAI-compatible client) and your LLM.
 
-- **`wrangle.py`**: executes phone actions over ADB and exposes ranked UI state from UIAutomator.
-- **`imprint.py`**: a Local Agentic Model (LAM) that learns reusable plans, stores them in SQLite, and replays them with zero tokens on cache hits.
+- **Cache hit** → executes locally, 0 tokens
+- **Cache miss** → calls LLM, learns result, next time is 0 tokens
+- **Device actions** → executes via ADB + Termux API (Android), shell (desktop)
+- **Built-in chat UI** at `/ui` — no OpenClaw required
 
-The core behavior is: **LLM teaches once, IMPRINT replays forever**.
+---
 
-## Architecture
+## Quick start (Android/Termux)
 
-```text
-OpenClaw chat / dispatcher
-          │
-          ▼
-      imprint.py  <->  ~/.imprint/memory.db
-          │
-          ▼
-      wrangle.py  <->  adb localhost:${ADB_PORT}
-          │
-          ▼
-      Android device
+```bash
+# 1. Install deps
+pip install fastapi 'uvicorn[standard]' --break-system-packages
+
+# 2. Install system tools
+pkg install android-tools termux-api
+
+# 3. Configure
+cp ~/.token-firewall.env ~/.token-firewall.env.bak  # if upgrading from v2
+nano ~/.token-firewall.env
+# Fill in TF_LLM_BASE_URL, TF_LLM_API_KEY, TF_LLM_MODEL
+
+# 4. Run (with auto-restart)
+cd ~/token-firewall-v3 && bash start.sh
 ```
 
-See the machine-readable interface contract in [`CONTRACT.md`](./CONTRACT.md).
+## OpenClaw config
 
-## Requirements
+Add to `~/.openclaw/openclaw.json` under `models.providers`:
 
-- Python 3.11+
-- `requests` (`pip install -r requirements.txt`)
-- ADB reachable at `localhost:${ADB_PORT}` (default port in code: **45171**)
-- ADBKeyboard installed + active (`com.android.adbkeyboard/.AdbIME`)
-- OpenClaw CLI configured (required for new-plan generation in `imprint.py`)
-- Optional: `CEREBRAS_KEY` for direct `wrangle.py` browser/text tracks
+```json
+"token-firewall": {
+  "baseUrl": "http://127.0.0.1:8000/v1",
+  "apiKey": "none",
+  "api": "openai-completions",
+  "models": [{"id": "firewall", "name": "Token Firewall", "input": ["text"]}]
+}
+```
+
+---
 
 ## Environment variables
 
-### Shared / execution
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TF_PLATFORM` | auto-detected | `android`, `ios`, `linux`, `macos`, `windows` |
+| `TF_LLM_BASE_URL` | — | LLM API base URL |
+| `TF_LLM_API_KEY` | — | LLM API key |
+| `TF_LLM_MODEL` | — | Model name |
+| `TF_LLM_FALLBACKS` | — | `url\|key\|model;url\|key\|model` |
+| `TF_HOST` | `127.0.0.1` | Server bind host |
+| `TF_PORT` | `8000` | Server port |
+| `TF_FUZZY_THRESHOLD` | `0.45` | Fuzzy match sensitivity |
+| `TF_STALE_DAYS` | `30` | Days before cached entries expire |
+| `TF_DISABLE_ADB` | `false` | Disable ADB entirely |
+| `TF_DISABLE_TERMUX` | `false` | Disable Termux API |
+| `TF_DISABLE_ACTIONS` | — | Comma-separated blocked action types |
 
-- `ADB_PORT` (default `45171`)
-- `DEVICE_WIDTH` (default `1080`)
-- `DEVICE_HEIGHT` (default `2340`)
+---
 
-### IMPRINT (`imprint.py`)
+## API endpoints
 
-- `OPENCLAW_SESSION` (default `main`)
-- `IMPRINT_DB` (default `~/.imprint/memory.db`)
-- `IMPRINT_THRESHOLD` (default `0.72`)
-- `IMPRINT_CONFIRM` (default `2`)
-- `IMPRINT_MAX_STEPS` (default `20`)
-- `IMPRINT_TIMEOUT` (default `120`)
-- `IMPRINT_RETRIES` (default `2`)
-- `IMPRINT_DEBUG` (`1` to enable debug logging)
-- `WRANGLE_PATH` (optional path override)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/chat/completions` | POST | OpenAI-compatible completions |
+| `/v1/models` | GET | List available models |
+| `/v1/capabilities` | GET | What the device can execute |
+| `/v1/ui-find` | POST | Find UI element coords via LLM |
+| `/v1/export-pack` | POST | Export learned entries to pack |
+| `/health` | GET | Status, stats, token savings |
+| `/ui` | GET | Built-in chat interface |
 
-### wrangle (`wrangle.py`)
+---
 
-- `CEREBRAS_KEY` (optional for direct browser/text tracks)
-- `WRANGLE_MAX_UI_ELEMENTS` (default `24`)
-- `WRANGLE_ADB_RETRIES` (default `3`)
-- `OLLAMA_URL` (default `http://localhost:11434`)
-- `VISION_MODEL` (default `moondream`)
+## Architecture
 
-## Quickstart
-
-```bash
-pip install -r requirements.txt
-mkdir -p ~/.imprint
-
-python wrangle.py check
-python imprint.py check
+```
+client (OpenClaw / built-in UI / curl)
+    │
+    ▼
+server.py  (FastAPI, async, SSE)
+    │
+    ▼
+FirewallRouter
+    ├── IntentEngine      classify + split compound intents
+    ├── KnowledgeStore    two-tier cache (packs + learned SQLite)
+    ├── Platform Hands    execute device actions
+    │     ├── AndroidHands   (Termux API + ADB)
+    │     ├── DesktopHands   (shell commands)
+    │     └── IOSHands       (future)
+    └── LLMAdapter        fallback chain of providers
 ```
 
-Learn and execute a task:
+## Adding a new platform
+
+1. Create `platforms/yourplatform/hands.py` implementing `execute(action) → ActionResult`
+2. Create `packs/yourplatform/base.json` with platform-specific knowledge entries
+3. Add detection in `core/config.py` `_detect_platform()`
+4. Add loader in `server.py` `_load_hands()`
+
+## Codex automation tips
+
+Use `/v1/ui-find` for intelligent element finding without a vision model:
 
 ```bash
-python imprint.py ask "open youtube and search for lo-fi hip hop"
+curl -X POST http://localhost:8000/v1/ui-find \
+  -H "Content-Type: application/json" \
+  -d '{"goal": "tap the login button"}'
+# → {"x": 540, "y": 1200}
 ```
 
-Useful commands:
-
+Then tap it:
 ```bash
-python imprint.py ask "turn off wifi" --dry
-python imprint.py ask "delete that message" --confirmed
-python imprint.py ask "open settings" --queue
-python imprint.py flush
-python imprint.py list
-python imprint.py plans-json
-python imprint.py stats
-python imprint.py apps
-
-python wrangle.py get_state --task "current screen"
-python wrangle.py do_action --json '{"action":"tap","x":540,"y":1200}'
-python wrangle.py list_apps
-python wrangle.py launch_app chrome --url "https://youtube.com"
+adb shell input tap 540 1200
 ```
-
-## Safety / reliability features in v2
-
-- Parameterized plan templates (`{contact}`, `{message}`, `{app}`, `{query}`)
-- Element-based targeting (text / id / content-desc)
-- Per-step retry + structured error reporting
-- Mid-task replan through OpenClaw when execution drifts
-- Screen-change verification and loop detection
-- Queue/flush mode for temporary ADB outages
-- Destructive-action guard unless `--confirmed` is passed
-
-## License
-
-MIT. See [`LICENSE`](./LICENSE).

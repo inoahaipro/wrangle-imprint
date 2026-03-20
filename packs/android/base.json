@@ -1,0 +1,2337 @@
+[
+  {
+    "intent": "battery status",
+    "action": {
+      "type": "battery_status",
+      "description": "Get battery level and charging status",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "check battery",
+    "action": {
+      "type": "battery_status",
+      "description": "Get battery level and charging status",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "how much battery",
+    "action": {
+      "type": "battery_status",
+      "description": "Get battery level and charging status",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "battery level",
+    "action": {
+      "type": "battery_status",
+      "description": "Get battery level and charging status",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "battery percentage",
+    "action": {
+      "type": "battery_status",
+      "description": "Get battery level and charging status",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "is my phone charging",
+    "action": {
+      "type": "battery_status",
+      "description": "Get battery level and charging status",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "brightness auto",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable auto brightness",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "auto brightness on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable auto brightness",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "auto brightness off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable auto brightness",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "maximum brightness",
+    "action": {
+      "type": "adb_command",
+      "description": "Set brightness to maximum",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness 255"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "minimum brightness",
+    "action": {
+      "type": "adb_command",
+      "description": "Set brightness to minimum",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness 10"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "full brightness",
+    "action": {
+      "type": "adb_command",
+      "description": "Set brightness to maximum",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness 255"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "dim screen",
+    "action": {
+      "type": "adb_command",
+      "description": "Dim the screen",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness 30"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "volume up",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn volume up",
+      "params": {
+        "cmd": "media volume --adj raise"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn volume up",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn volume up",
+      "params": {
+        "cmd": "media volume --adj raise"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "increase volume",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn volume up",
+      "params": {
+        "cmd": "media volume --adj raise"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "volume down",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn volume down",
+      "params": {
+        "cmd": "media volume --adj lower"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn volume down",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn volume down",
+      "params": {
+        "cmd": "media volume --adj lower"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "decrease volume",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn volume down",
+      "params": {
+        "cmd": "media volume --adj lower"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "mute",
+    "action": {
+      "type": "adb_command",
+      "description": "Mute device",
+      "params": {
+        "cmd": "media volume --set 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "mute phone",
+    "action": {
+      "type": "adb_command",
+      "description": "Mute device",
+      "params": {
+        "cmd": "media volume --set 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "silence phone",
+    "action": {
+      "type": "adb_command",
+      "description": "Mute device",
+      "params": {
+        "cmd": "media volume --set 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "unmute",
+    "action": {
+      "type": "adb_command",
+      "description": "Unmute device",
+      "params": {
+        "cmd": "media volume --adj raise"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "max volume",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to maximum",
+      "params": {
+        "cmd": "media volume --set 15"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "maximum volume",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to maximum",
+      "params": {
+        "cmd": "media volume --set 15"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "ring volume {value}",
+    "action": {
+      "type": "adb_command",
+      "description": "Set ring volume",
+      "params": {
+        "cmd": "cmd audio set-volume ring {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "ringer volume {value}",
+    "action": {
+      "type": "adb_command",
+      "description": "Set ring volume",
+      "params": {
+        "cmd": "cmd audio set-volume ring {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wifi info",
+    "action": {
+      "type": "wifi_info",
+      "description": "Get WiFi connection info",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wifi status",
+    "action": {
+      "type": "wifi_info",
+      "description": "Get WiFi connection info",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wifi network",
+    "action": {
+      "type": "wifi_info",
+      "description": "Get WiFi connection info",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "my ip address",
+    "action": {
+      "type": "wifi_info",
+      "description": "Get WiFi connection info",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "what is my ip",
+    "action": {
+      "type": "wifi_info",
+      "description": "Get WiFi connection info",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wifi scan",
+    "action": {
+      "type": "wifi_scan",
+      "description": "Scan for available WiFi networks",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "scan wifi",
+    "action": {
+      "type": "wifi_scan",
+      "description": "Scan for available WiFi networks",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "available networks",
+    "action": {
+      "type": "wifi_scan",
+      "description": "Scan for available WiFi networks",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wifi on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable WiFi",
+      "params": {
+        "cmd": "svc wifi enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn wifi on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable WiFi",
+      "params": {
+        "cmd": "svc wifi enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "enable wifi",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable WiFi",
+      "params": {
+        "cmd": "svc wifi enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wifi off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable WiFi",
+      "params": {
+        "cmd": "svc wifi disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn wifi off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable WiFi",
+      "params": {
+        "cmd": "svc wifi disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "disable wifi",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable WiFi",
+      "params": {
+        "cmd": "svc wifi disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "bluetooth on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Bluetooth",
+      "params": {
+        "cmd": "cmd bluetooth_manager enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn bluetooth on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Bluetooth",
+      "params": {
+        "cmd": "cmd bluetooth_manager enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "enable bluetooth",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Bluetooth",
+      "params": {
+        "cmd": "cmd bluetooth_manager enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "bluetooth off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Bluetooth",
+      "params": {
+        "cmd": "cmd bluetooth_manager disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn bluetooth off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Bluetooth",
+      "params": {
+        "cmd": "cmd bluetooth_manager disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "disable bluetooth",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Bluetooth",
+      "params": {
+        "cmd": "cmd bluetooth_manager disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "flashlight on",
+    "action": {
+      "type": "torch",
+      "description": "Turn on flashlight",
+      "params": {
+        "state": "on"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "torch on",
+    "action": {
+      "type": "torch",
+      "description": "Turn on flashlight",
+      "params": {
+        "state": "on"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn on flashlight",
+    "action": {
+      "type": "torch",
+      "description": "Turn on flashlight",
+      "params": {
+        "state": "on"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn on torch",
+    "action": {
+      "type": "torch",
+      "description": "Turn on flashlight",
+      "params": {
+        "state": "on"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "flashlight off",
+    "action": {
+      "type": "torch",
+      "description": "Turn off flashlight",
+      "params": {
+        "state": "off"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "torch off",
+    "action": {
+      "type": "torch",
+      "description": "Turn off flashlight",
+      "params": {
+        "state": "off"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn off flashlight",
+    "action": {
+      "type": "torch",
+      "description": "Turn off flashlight",
+      "params": {
+        "state": "off"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn off torch",
+    "action": {
+      "type": "torch",
+      "description": "Turn off flashlight",
+      "params": {
+        "state": "off"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "vibrate",
+    "action": {
+      "type": "vibrate",
+      "description": "Vibrate the phone",
+      "params": {
+        "duration_ms": 500
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "vibrate phone",
+    "action": {
+      "type": "vibrate",
+      "description": "Vibrate the phone",
+      "params": {
+        "duration_ms": 500
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "make phone vibrate",
+    "action": {
+      "type": "vibrate",
+      "description": "Vibrate the phone",
+      "params": {
+        "duration_ms": 500
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "vibrate for {value}ms",
+    "action": {
+      "type": "vibrate",
+      "description": "Vibrate for {value}ms",
+      "params": {
+        "duration_ms": "{value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "do not disturb on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "enable do not disturb",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn on do not disturb",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "dnd on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "do not disturb off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "disable do not disturb",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn off do not disturb",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "dnd off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable Do Not Disturb",
+      "params": {
+        "cmd": "settings put global zen_mode 0"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "airplane mode on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable airplane mode",
+      "params": {
+        "cmd": "settings put global airplane_mode_on 1 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn on airplane mode",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable airplane mode",
+      "params": {
+        "cmd": "settings put global airplane_mode_on 1 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "enable airplane mode",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable airplane mode",
+      "params": {
+        "cmd": "settings put global airplane_mode_on 1 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "airplane mode off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable airplane mode",
+      "params": {
+        "cmd": "settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn off airplane mode",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable airplane mode",
+      "params": {
+        "cmd": "settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "disable airplane mode",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable airplane mode",
+      "params": {
+        "cmd": "settings put global airplane_mode_on 0 && am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "lock screen",
+    "action": {
+      "type": "adb_command",
+      "description": "Lock the screen",
+      "params": {
+        "cmd": "input keyevent 26"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "lock phone",
+    "action": {
+      "type": "adb_command",
+      "description": "Lock the screen",
+      "params": {
+        "cmd": "input keyevent 26"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn off screen",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn off screen",
+      "params": {
+        "cmd": "input keyevent 26"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen off",
+    "action": {
+      "type": "adb_command",
+      "description": "Turn off screen",
+      "params": {
+        "cmd": "input keyevent 26"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "wake screen",
+    "action": {
+      "type": "adb_command",
+      "description": "Wake up screen",
+      "params": {
+        "cmd": "input keyevent 224"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn on screen",
+    "action": {
+      "type": "adb_command",
+      "description": "Wake up screen",
+      "params": {
+        "cmd": "input keyevent 224"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen on",
+    "action": {
+      "type": "adb_command",
+      "description": "Wake up screen",
+      "params": {
+        "cmd": "input keyevent 224"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen timeout {value}",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen timeout",
+      "params": {
+        "cmd": "settings put system screen_off_timeout {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen timeout 30 seconds",
+    "action": {
+      "type": "adb_command",
+      "description": "Set 30s screen timeout",
+      "params": {
+        "cmd": "settings put system screen_off_timeout 30000"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen timeout 1 minute",
+    "action": {
+      "type": "adb_command",
+      "description": "Set 1min screen timeout",
+      "params": {
+        "cmd": "settings put system screen_off_timeout 60000"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen timeout 5 minutes",
+    "action": {
+      "type": "adb_command",
+      "description": "Set 5min screen timeout",
+      "params": {
+        "cmd": "settings put system screen_off_timeout 300000"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "keep screen on",
+    "action": {
+      "type": "adb_command",
+      "description": "Keep screen always on",
+      "params": {
+        "cmd": "settings put system screen_off_timeout -1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screenshot",
+    "action": {
+      "type": "screenshot_adb",
+      "description": "Take a screenshot",
+      "params": {
+        "path": "/sdcard/screenshot.png"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "take screenshot",
+    "action": {
+      "type": "screenshot_adb",
+      "description": "Take a screenshot",
+      "params": {
+        "path": "/sdcard/screenshot.png"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "grab screenshot",
+    "action": {
+      "type": "screenshot_adb",
+      "description": "Take a screenshot",
+      "params": {
+        "path": "/sdcard/screenshot.png"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "go home",
+    "action": {
+      "type": "key_event",
+      "description": "Press home button",
+      "params": {
+        "key": "home"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "home button",
+    "action": {
+      "type": "key_event",
+      "description": "Press home button",
+      "params": {
+        "key": "home"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "press home",
+    "action": {
+      "type": "key_event",
+      "description": "Press home button",
+      "params": {
+        "key": "home"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "go back",
+    "action": {
+      "type": "key_event",
+      "description": "Press back button",
+      "params": {
+        "key": "back"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "press back",
+    "action": {
+      "type": "key_event",
+      "description": "Press back button",
+      "params": {
+        "key": "back"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "back button",
+    "action": {
+      "type": "key_event",
+      "description": "Press back button",
+      "params": {
+        "key": "back"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "recent apps",
+    "action": {
+      "type": "key_event",
+      "description": "Show recent apps",
+      "params": {
+        "key": "recent"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "show recents",
+    "action": {
+      "type": "key_event",
+      "description": "Show recent apps",
+      "params": {
+        "key": "recent"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "app switcher",
+    "action": {
+      "type": "key_event",
+      "description": "Show recent apps",
+      "params": {
+        "key": "recent"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "multitasking",
+    "action": {
+      "type": "key_event",
+      "description": "Show recent apps",
+      "params": {
+        "key": "recent"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "scroll down",
+    "action": {
+      "type": "scroll_down",
+      "description": "Scroll down",
+      "params": {
+        "steps": 5
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "scroll up",
+    "action": {
+      "type": "scroll_up",
+      "description": "Scroll up",
+      "params": {
+        "steps": 5
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "scroll down {value}",
+    "action": {
+      "type": "scroll_down",
+      "description": "Scroll down {value} steps",
+      "params": {
+        "steps": "{value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "scroll up {value}",
+    "action": {
+      "type": "scroll_up",
+      "description": "Scroll up {value} steps",
+      "params": {
+        "steps": "{value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "take a photo",
+    "action": {
+      "type": "take_photo",
+      "description": "Take a photo",
+      "params": {
+        "filename": "/sdcard/photo.jpg"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "take photo",
+    "action": {
+      "type": "take_photo",
+      "description": "Take a photo",
+      "params": {
+        "filename": "/sdcard/photo.jpg"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "take a picture",
+    "action": {
+      "type": "take_photo",
+      "description": "Take a photo",
+      "params": {
+        "filename": "/sdcard/photo.jpg"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "take picture",
+    "action": {
+      "type": "take_photo",
+      "description": "Take a photo",
+      "params": {
+        "filename": "/sdcard/photo.jpg"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "take a pic",
+    "action": {
+      "type": "take_photo",
+      "description": "Take a photo",
+      "params": {
+        "filename": "/sdcard/photo.jpg"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "snap a photo",
+    "action": {
+      "type": "take_photo",
+      "description": "Take a photo",
+      "params": {
+        "filename": "/sdcard/photo.jpg"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "get clipboard",
+    "action": {
+      "type": "clipboard_get",
+      "description": "Get clipboard contents",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "what is in clipboard",
+    "action": {
+      "type": "clipboard_get",
+      "description": "Get clipboard contents",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "paste clipboard",
+    "action": {
+      "type": "clipboard_get",
+      "description": "Get clipboard contents",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "read clipboard",
+    "action": {
+      "type": "clipboard_get",
+      "description": "Get clipboard contents",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "where am i",
+    "action": {
+      "type": "location",
+      "description": "Get current location",
+      "params": {
+        "provider": "network"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "my location",
+    "action": {
+      "type": "location",
+      "description": "Get current location",
+      "params": {
+        "provider": "network"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "current location",
+    "action": {
+      "type": "location",
+      "description": "Get current location",
+      "params": {
+        "provider": "network"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "gps location",
+    "action": {
+      "type": "location",
+      "description": "Get GPS location",
+      "params": {
+        "provider": "gps"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "get coordinates",
+    "action": {
+      "type": "location",
+      "description": "Get current location",
+      "params": {
+        "provider": "gps"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "clear notifications",
+    "action": {
+      "type": "adb_command",
+      "description": "Clear all notifications",
+      "params": {
+        "cmd": "service call notification 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "dismiss all notifications",
+    "action": {
+      "type": "adb_command",
+      "description": "Clear all notifications",
+      "params": {
+        "cmd": "service call notification 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "clear all notifications",
+    "action": {
+      "type": "adb_command",
+      "description": "Clear all notifications",
+      "params": {
+        "cmd": "service call notification 1"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "mobile data on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable mobile data",
+      "params": {
+        "cmd": "svc data enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn on mobile data",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable mobile data",
+      "params": {
+        "cmd": "svc data enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "enable mobile data",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable mobile data",
+      "params": {
+        "cmd": "svc data enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "data on",
+    "action": {
+      "type": "adb_command",
+      "description": "Enable mobile data",
+      "params": {
+        "cmd": "svc data enable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "mobile data off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable mobile data",
+      "params": {
+        "cmd": "svc data disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn off mobile data",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable mobile data",
+      "params": {
+        "cmd": "svc data disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "disable mobile data",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable mobile data",
+      "params": {
+        "cmd": "svc data disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "data off",
+    "action": {
+      "type": "adb_command",
+      "description": "Disable mobile data",
+      "params": {
+        "cmd": "svc data disable"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open chrome",
+    "action": {
+      "type": "open_app",
+      "description": "Open Chrome",
+      "params": {
+        "package": "com.android.chrome",
+        "app_name": "Chrome"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open youtube",
+    "action": {
+      "type": "open_app",
+      "description": "Open YouTube",
+      "params": {
+        "package": "com.google.android.youtube",
+        "app_name": "YouTube"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open maps",
+    "action": {
+      "type": "open_app",
+      "description": "Open Maps",
+      "params": {
+        "package": "com.google.android.apps.maps",
+        "app_name": "Maps"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open gmail",
+    "action": {
+      "type": "open_app",
+      "description": "Open Gmail",
+      "params": {
+        "package": "com.google.android.gm",
+        "app_name": "Gmail"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open camera",
+    "action": {
+      "type": "open_app",
+      "description": "Open Camera",
+      "params": {
+        "package": "com.android.camera2",
+        "app_name": "Camera"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open settings",
+    "action": {
+      "type": "open_app",
+      "description": "Open Settings",
+      "params": {
+        "package": "com.android.settings",
+        "app_name": "Settings"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open phone",
+    "action": {
+      "type": "open_app",
+      "description": "Open Phone",
+      "params": {
+        "package": "com.google.android.dialer",
+        "app_name": "Phone"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open calendar",
+    "action": {
+      "type": "open_app",
+      "description": "Open Calendar",
+      "params": {
+        "package": "com.google.android.calendar",
+        "app_name": "Calendar"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open play store",
+    "action": {
+      "type": "open_app",
+      "description": "Open Play Store",
+      "params": {
+        "package": "com.android.vending",
+        "app_name": "Play Store"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open spotify",
+    "action": {
+      "type": "open_app",
+      "description": "Open Spotify",
+      "params": {
+        "package": "com.spotify.music",
+        "app_name": "Spotify"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open whatsapp",
+    "action": {
+      "type": "open_app",
+      "description": "Open WhatsApp",
+      "params": {
+        "package": "com.whatsapp",
+        "app_name": "WhatsApp"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open telegram",
+    "action": {
+      "type": "open_app",
+      "description": "Open Telegram",
+      "params": {
+        "package": "org.telegram.messenger",
+        "app_name": "Telegram"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open instagram",
+    "action": {
+      "type": "open_app",
+      "description": "Open Instagram",
+      "params": {
+        "package": "com.instagram.android",
+        "app_name": "Instagram"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open facebook",
+    "action": {
+      "type": "open_app",
+      "description": "Open Facebook",
+      "params": {
+        "package": "com.facebook.katana",
+        "app_name": "Facebook"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open twitter",
+    "action": {
+      "type": "open_app",
+      "description": "Open Twitter",
+      "params": {
+        "package": "com.twitter.android",
+        "app_name": "Twitter"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open reddit",
+    "action": {
+      "type": "open_app",
+      "description": "Open Reddit",
+      "params": {
+        "package": "com.reddit.frontpage",
+        "app_name": "Reddit"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open discord",
+    "action": {
+      "type": "open_app",
+      "description": "Open Discord",
+      "params": {
+        "package": "com.discord",
+        "app_name": "Discord"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open netflix",
+    "action": {
+      "type": "open_app",
+      "description": "Open Netflix",
+      "params": {
+        "package": "com.netflix.mediaclient",
+        "app_name": "Netflix"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open claude",
+    "action": {
+      "type": "open_app",
+      "description": "Open Claude",
+      "params": {
+        "package": "com.anthropic.claude",
+        "app_name": "Claude"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open chatgpt",
+    "action": {
+      "type": "open_app",
+      "description": "Open ChatGPT",
+      "params": {
+        "package": "com.openai.chatgpt",
+        "app_name": "ChatGPT"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open calculator",
+    "action": {
+      "type": "open_app",
+      "description": "Open Calculator",
+      "params": {
+        "package": "com.android.calculator2",
+        "app_name": "Calculator"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open clock",
+    "action": {
+      "type": "open_app",
+      "description": "Open Clock",
+      "params": {
+        "package": "com.google.android.deskclock",
+        "app_name": "Clock"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open files",
+    "action": {
+      "type": "open_app",
+      "description": "Open Files",
+      "params": {
+        "package": "com.google.android.documentsui",
+        "app_name": "Files"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open photos",
+    "action": {
+      "type": "open_app",
+      "description": "Open Photos",
+      "params": {
+        "package": "com.google.android.apps.photos",
+        "app_name": "Photos"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open messages",
+    "action": {
+      "type": "open_app",
+      "description": "Open Messages",
+      "params": {
+        "package": "com.google.android.apps.messaging",
+        "app_name": "Messages"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open contacts",
+    "action": {
+      "type": "open_app",
+      "description": "Open Contacts",
+      "params": {
+        "package": "com.google.android.contacts",
+        "app_name": "Contacts"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open google",
+    "action": {
+      "type": "open_app",
+      "description": "Open Google",
+      "params": {
+        "package": "com.google.android.googlequicksearchbox",
+        "app_name": "Google"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open amazon",
+    "action": {
+      "type": "open_app",
+      "description": "Open Amazon",
+      "params": {
+        "package": "com.amazon.mShop.android.shopping",
+        "app_name": "Amazon"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open uber",
+    "action": {
+      "type": "open_app",
+      "description": "Open Uber",
+      "params": {
+        "package": "com.ubercab",
+        "app_name": "Uber"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open tiktok",
+    "action": {
+      "type": "open_app",
+      "description": "Open TikTok",
+      "params": {
+        "package": "com.zhiliaoapp.musically",
+        "app_name": "TikTok"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "open snapchat",
+    "action": {
+      "type": "open_app",
+      "description": "Open Snapchat",
+      "params": {
+        "package": "com.snapchat.android",
+        "app_name": "Snapchat"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "storage info",
+    "action": {
+      "type": "adb_command",
+      "description": "Check storage space",
+      "params": {
+        "cmd": "df /sdcard"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "check storage",
+    "action": {
+      "type": "adb_command",
+      "description": "Check storage space",
+      "params": {
+        "cmd": "df /sdcard"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "free storage",
+    "action": {
+      "type": "adb_command",
+      "description": "Check storage space",
+      "params": {
+        "cmd": "df /sdcard"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "device info",
+    "action": {
+      "type": "adb_command",
+      "description": "Get device model and Android version",
+      "params": {
+        "cmd": "getprop ro.product.model && getprop ro.build.version.release"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "android version",
+    "action": {
+      "type": "adb_command",
+      "description": "Get Android version",
+      "params": {
+        "cmd": "getprop ro.build.version.release"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "device model",
+    "action": {
+      "type": "adb_command",
+      "description": "Get device model",
+      "params": {
+        "cmd": "getprop ro.product.model"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "ip address",
+    "action": {
+      "type": "adb_command",
+      "description": "Get device IP address",
+      "params": {
+        "cmd": "ip route get 1.1.1.1 | grep src"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "running apps",
+    "action": {
+      "type": "adb_command",
+      "description": "List running third-party apps",
+      "params": {
+        "cmd": "cmd activity list-packages -3"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "change screen brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "set screen brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "set brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "change brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "screen brightness {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "turn screen brightness to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set screen brightness to {value}%",
+      "params": {
+        "cmd": "settings put system screen_brightness_mode 0 && settings put system screen_brightness {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "volume to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to {value}%",
+      "params": {
+        "cmd": "media volume --set {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "set volume to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to {value}%",
+      "params": {
+        "cmd": "media volume --set {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "media volume {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to {value}%",
+      "params": {
+        "cmd": "media volume --set {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "set media volume to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to {value}%",
+      "params": {
+        "cmd": "media volume --set {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  },
+  {
+    "intent": "change volume to {value}%",
+    "action": {
+      "type": "adb_command",
+      "description": "Set volume to {value}%",
+      "params": {
+        "cmd": "media volume --set {value}"
+      }
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "android"
+  }
+]

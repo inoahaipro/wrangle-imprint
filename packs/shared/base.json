@@ -1,0 +1,38 @@
+[
+  {
+    "intent": "what time is it",
+    "fingerprint": null,
+    "action": {
+      "type": "run_command",
+      "description": "Get current time",
+      "params": {"cmd": "date +%H:%M:%S"}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "shared"
+  },
+  {
+    "intent": "what is today's date",
+    "fingerprint": null,
+    "action": {
+      "type": "run_command",
+      "description": "Get current date",
+      "params": {"cmd": "date +%Y-%m-%d"}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "shared"
+  },
+  {
+    "intent": "get clipboard",
+    "fingerprint": null,
+    "action": {
+      "type": "clipboard_get",
+      "description": "Read clipboard contents",
+      "params": {}
+    },
+    "confidence": 1.0,
+    "granularity": "full",
+    "platform": "shared"
+  }
+]

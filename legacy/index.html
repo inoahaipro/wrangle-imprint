@@ -1,0 +1,1197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>wrangle-imprint — local phone brain for Android</title>
+  <meta name="description" content="Teach your phone a task once. It replays forever with zero tokens. Local Android automation that learns." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Unbounded:wght@400;700;900&family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&display=swap" rel="stylesheet" />
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #080808;
+      --surface:  #0f0f0f;
+      --border:   #1e1e1e;
+      --border2:  #2a2a2a;
+      --accent:   #ff4400;
+      --accent2:  #ff6633;
+      --text:     #e2e2e2;
+      --muted:    #555;
+      --code-bg:  #0d0d0d;
+      --green:    #39d353;
+      --amber:    #f0a500;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      line-height: 1.6;
+      overflow-x: hidden;
+    }
+
+    /* ── Grain overlay ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0.4;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 18px 40px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8,8,8,0.92);
+      backdrop-filter: blur(8px);
+    }
+
+    .nav-logo {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--accent); }
+
+    nav ul {
+      list-style: none;
+      display: flex;
+      gap: 32px;
+      align-items: center;
+    }
+
+    nav ul a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      transition: color 0.15s;
+    }
+
+    nav ul a:hover { color: var(--text); }
+
+    .nav-cta {
+      color: var(--accent) !important;
+      border: 1px solid var(--accent);
+      padding: 6px 14px;
+    }
+
+    .nav-cta:hover {
+      background: var(--accent) !important;
+      color: var(--bg) !important;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: center;
+      padding: 120px 40px 80px;
+      gap: 60px;
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::after {
+      content: '';
+      position: absolute;
+      top: -200px;
+      right: -200px;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(255,68,0,0.04) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-left { max-width: 560px; }
+
+    .hero-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      border: 1px solid rgba(255,68,0,0.3);
+      padding: 5px 12px;
+      margin-bottom: 32px;
+    }
+
+    .hero-tag::before {
+      content: '';
+      width: 6px;
+      height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .hero h1 {
+      font-family: 'Unbounded', sans-serif;
+      font-size: clamp(36px, 5vw, 64px);
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.02em;
+      margin-bottom: 28px;
+      color: #fff;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      color: var(--accent);
+    }
+
+    .hero-sub {
+      font-size: 15px;
+      color: #888;
+      line-height: 1.7;
+      margin-bottom: 40px;
+      max-width: 420px;
+      font-family: 'DM Mono', monospace;
+      font-weight: 300;
+    }
+
+    .hero-sub strong { color: var(--text); font-weight: 400; }
+
+    .hero-actions {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .btn-primary {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--accent);
+      color: #fff;
+      text-decoration: none;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      padding: 12px 24px;
+      letter-spacing: 0.05em;
+      font-weight: 500;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .btn-primary:hover { background: var(--accent2); transform: translateY(-1px); }
+
+    .btn-ghost {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      text-decoration: none;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      padding: 12px 0;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border2);
+      transition: color 0.15s, border-color 0.15s;
+    }
+
+    .btn-ghost:hover { color: var(--text); border-color: var(--text); }
+
+    /* ── Terminal demo ── */
+    .terminal {
+      background: var(--code-bg);
+      border: 1px solid var(--border2);
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      overflow: hidden;
+      position: relative;
+      min-width: 0;
+    }
+
+    .terminal-body {
+      padding: 20px;
+      line-height: 1.8;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      white-space: pre;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      background: #0a0a0a;
+    }
+
+    .dot { width: 10px; height: 10px; border-radius: 50%; }
+    .dot-r { background: #ff5f56; }
+    .dot-y { background: #ffbd2e; }
+    .dot-g { background: #27c93f; }
+
+    .terminal-label {
+      margin-left: 8px;
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+
+    .t-muted  { color: #444; }
+    .t-prompt { color: var(--muted); }
+    .t-cmd    { color: var(--text); }
+    .t-key    { color: var(--amber); }
+    .t-val    { color: #7ec8e3; }
+    .t-str    { color: #a8d8a8; }
+    .t-ok     { color: var(--green); }
+    .t-err    { color: var(--accent); }
+    .t-dim    { color: #333; }
+
+    .cursor {
+      display: inline-block;
+      width: 8px;
+      height: 14px;
+      background: var(--accent);
+      vertical-align: middle;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0; }
+    }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .stat {
+      padding: 32px 40px;
+      border-right: 1px solid var(--border);
+    }
+
+    .stat:last-child { border-right: none; }
+
+    .stat-num {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 32px;
+      font-weight: 900;
+      color: #fff;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .stat-num span { color: var(--accent); }
+
+    .stat-label {
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    /* ── Section ── */
+    section { border-bottom: 1px solid var(--border); overflow: hidden; }
+
+    .section-inner {
+      padding: 80px 40px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .section-tag {
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 16px;
+    }
+
+    .section-title {
+      font-family: 'Unbounded', sans-serif;
+      font-size: clamp(24px, 3vw, 40px);
+      font-weight: 700;
+      color: #fff;
+      line-height: 1.1;
+      margin-bottom: 20px;
+    }
+
+    .section-body {
+      font-size: 14px;
+      color: #777;
+      max-width: 480px;
+      line-height: 1.8;
+      font-weight: 300;
+    }
+
+    /* ── How it works ── */
+    .how-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+      margin-top: 60px;
+    }
+
+    .flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .flow-step {
+      display: grid;
+      grid-template-columns: 48px 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    /* Animation only on hover-capable (desktop) devices to avoid mobile gap bug */
+    @media (hover: hover) {
+      .flow-step {
+        opacity: 0;
+        transform: translateX(-12px);
+        transition: opacity 0.4s, transform 0.4s;
+      }
+      .flow-step.visible { opacity: 1; transform: translateX(0); }
+      .flow-step:nth-child(1) { transition-delay: 0.0s; }
+      .flow-step:nth-child(2) { transition-delay: 0.1s; }
+      .flow-step:nth-child(3) { transition-delay: 0.2s; }
+      .flow-step:nth-child(4) { transition-delay: 0.3s; }
+      .flow-step:nth-child(5) { transition-delay: 0.4s; }
+    }
+
+    .flow-left {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .flow-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 6px;
+    }
+
+    .flow-dot.imprint { background: var(--accent); }
+    .flow-dot.llm     { background: var(--amber); }
+    .flow-dot.done    { background: var(--green); }
+
+    .flow-line {
+      flex: 1;
+      width: 1px;
+      background: var(--border2);
+      margin: 4px 0;
+      min-height: 20px;
+    }
+
+    .flow-content { padding-bottom: 24px; }
+
+    .flow-who {
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .flow-who.imprint { color: var(--accent); }
+    .flow-who.llm     { color: var(--amber); }
+    .flow-who.done    { color: var(--green); }
+
+    .flow-text {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .flow-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+
+    /* ── Architecture ── */
+    .arch-block {
+      background: var(--code-bg);
+      border: 1px solid var(--border2);
+      padding: 32px;
+      font-size: 13px;
+      line-height: 2;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .arch-accent { color: var(--accent); }
+    .arch-dim    { color: #333; }
+    .arch-label  { color: var(--amber); }
+    .arch-arrow  { color: var(--muted); }
+    .arch-module { color: #7ec8e3; }
+    .arch-note   { color: #3a3a3a; font-style: italic; }
+
+    /* ── Features ── */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      margin-top: 60px;
+      border: 1px solid var(--border);
+    }
+
+    .feature {
+      padding: 36px 32px;
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      position: relative;
+      overflow: hidden;
+      transition: background 0.2s;
+    }
+
+    .feature:hover { background: #0d0d0d; }
+
+    .feature:nth-child(3n) { border-right: none; }
+    .feature:nth-child(4),
+    .feature:nth-child(5),
+    .feature:nth-child(6) { border-bottom: none; }
+
+    .feature-num {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 11px;
+      color: #2a2a2a;
+      font-weight: 900;
+      margin-bottom: 20px;
+      letter-spacing: 0.1em;
+    }
+
+    .feature-title {
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      color: #fff;
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+
+    .feature-title span { color: var(--accent); }
+
+    .feature-body {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.7;
+      font-weight: 300;
+    }
+
+    /* ── Quickstart ── */
+    .quickstart-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 0;
+      margin-top: 60px;
+      border: 1px solid var(--border2);
+    }
+
+    .qs-nav {
+      border-right: 1px solid var(--border2);
+      padding: 8px 0;
+    }
+
+    .qs-tab {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 12px 20px;
+      background: none;
+      border: none;
+      color: var(--muted);
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      border-left: 2px solid transparent;
+      transition: all 0.15s;
+    }
+
+    .qs-tab:hover { color: var(--text); background: #0d0d0d; }
+    .qs-tab.active { color: var(--text); border-left-color: var(--accent); background: #0d0d0d; }
+
+    .qs-content { display: none; padding: 0; }
+    .qs-content.active { display: block; }
+
+    pre.code-block {
+      background: var(--code-bg);
+      padding: 28px;
+      font-family: 'DM Mono', monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      overflow-x: auto;
+      color: var(--text);
+      white-space: pre;
+    }
+
+    .c-comment { color: #3d3d3d; }
+    .c-cmd     { color: var(--green); }
+    .c-flag    { color: var(--amber); }
+    .c-str     { color: #7ec8e3; }
+    .c-key     { color: var(--accent2); }
+
+    /* ── Comparison ── */
+    .compare-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 48px;
+      font-size: 13px;
+    }
+
+    .compare-table th {
+      text-align: left;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border2);
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 400;
+    }
+
+    .compare-table th:first-child { color: var(--accent); }
+
+    .compare-table td {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      color: #666;
+      vertical-align: middle;
+    }
+
+    .compare-table td:first-child { color: var(--text); font-weight: 500; }
+
+    .compare-table tr:last-child td { border-bottom: none; }
+
+    .compare-table tr:hover td { background: #0d0d0d; }
+
+    .check-y { color: var(--green); }
+    .check-n { color: #2a2a2a; }
+    .check-p { color: var(--amber); }
+
+    /* ── CTA ── */
+    .cta-section {
+      padding: 100px 40px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 60px;
+      align-items: center;
+    }
+
+    .cta-title {
+      font-family: 'Unbounded', sans-serif;
+      font-size: clamp(28px, 4vw, 52px);
+      font-weight: 900;
+      color: #fff;
+      line-height: 1.05;
+    }
+
+    .cta-title em { font-style: normal; color: var(--accent); }
+
+    .cta-right { display: flex; flex-direction: column; gap: 16px; }
+
+    .cta-line {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 13px;
+      color: var(--muted);
+      font-weight: 300;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cta-line:last-of-type { border-bottom: none; }
+
+    .cta-icon { color: var(--accent); flex-shrink: 0; margin-top: 1px; }
+
+    .cta-actions { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 32px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .footer-logo {
+      font-family: 'Unbounded', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .footer-logo span { color: var(--accent); }
+
+    .footer-links {
+      display: flex;
+      gap: 24px;
+      list-style: none;
+    }
+
+    .footer-links a {
+      font-size: 12px;
+      color: #333;
+      text-decoration: none;
+      letter-spacing: 0.06em;
+      transition: color 0.15s;
+    }
+
+    .footer-links a:hover { color: var(--muted); }
+
+    .footer-mit {
+      font-size: 11px;
+      color: #2a2a2a;
+    }
+
+    /* Reveal animation — desktop only */
+    @media (hover: hover) {
+      .reveal {
+        opacity: 0;
+        transform: translateY(16px);
+        transition: opacity 0.5s, transform 0.5s;
+      }
+      .reveal.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 900px) {
+      /* Nav — hide text links, keep logo + github */
+      nav { padding: 14px 20px; }
+      nav ul li:not(:last-child) { display: none; }
+      nav ul { gap: 0; }
+
+      /* Hero */
+      .hero {
+        grid-template-columns: 1fr;
+        padding: 80px 20px 48px;
+        min-height: auto;
+        gap: 36px;
+      }
+      .hero::after { display: none; }
+      .hero h1 { font-size: 40px; }
+      .hero-sub { font-size: 13px; max-width: 100%; }
+
+      /* Stats */
+      .stats-bar { grid-template-columns: 1fr 1fr; }
+      .stat { padding: 24px 20px; border-right: none; border-bottom: 1px solid var(--border); }
+      .stat:nth-child(odd) { border-right: 1px solid var(--border); }
+      .stat:last-child, .stat:nth-last-child(2) { border-bottom: none; }
+      .stat-num { font-size: 24px; }
+
+      /* Sections */
+      .section-inner { padding: 48px 20px; }
+      .section-title { font-size: 28px; }
+
+      /* How it works */
+      .how-grid { grid-template-columns: 1fr; gap: 40px; }
+
+      /* Features */
+      .features-grid { grid-template-columns: 1fr; }
+      .feature { border-right: none !important; padding: 28px 20px; }
+      .feature:last-child { border-bottom: none; }
+      .feature:not(:last-child) { border-bottom: 1px solid var(--border) !important; }
+
+      /* Quickstart */
+      .quickstart-grid { grid-template-columns: 1fr; }
+      .qs-nav {
+        border-right: none;
+        border-bottom: 1px solid var(--border2);
+        display: flex;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      .qs-tab {
+        border-left: none;
+        border-bottom: 2px solid transparent;
+        white-space: nowrap;
+        padding: 12px 16px;
+        font-size: 11px;
+      }
+      .qs-tab.active { border-left: none; border-bottom-color: var(--accent); }
+      pre.code-block { font-size: 12px; padding: 20px 16px; white-space: pre-wrap; word-break: break-word; }
+
+      /* Compare table — scroll on mobile */
+      .compare-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: calc(100vw - 40px); }
+      .compare-table th, .compare-table td { padding: 12px 14px; white-space: nowrap; }
+
+      /* Arch block */
+      .arch-block { font-size: 11px; padding: 20px 16px; white-space: pre-wrap; word-break: break-word; }
+
+      /* CTA */
+      .cta-section { grid-template-columns: 1fr; padding: 48px 20px; gap: 36px; }
+      .cta-title { font-size: 32px; }
+
+      /* Footer */
+      footer { flex-direction: column; gap: 16px; text-align: center; padding: 24px 20px; }
+      .footer-links { flex-wrap: wrap; justify-content: center; gap: 16px; }
+    }
+
+    /* Extra small phones */
+    @media (max-width: 400px) {
+      .hero h1 { font-size: 32px; }
+      .hero-tag { font-size: 10px; }
+      .stat-num { font-size: 20px; }
+      .btn-primary, .btn-ghost { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ── Nav ── -->
+  <nav>
+  <a href="#" class="nav-logo">wrangle<span>-</span>imprint</a>
+  <ul>
+    <li><a href="#how">how it works</a></li>
+    <li><a href="#features">features</a></li>
+    <li><a href="#quickstart">quickstart</a></li>
+    <li><a href="https://github.com/inoahaipro/wrangle-imprint" target="_blank" class="nav-cta">GitHub ↗</a></li>
+    <li><a href="https://www.paypal.me/rtylerslcc" target="_blank" class="nav-cta" style="border-color:#009cde;color:#009cde;">PayPal - PC Fund</a></li>
+  </ul>
+</nav>
+
+  <!-- ── Hero ── -->
+  <section class="hero">
+    <div class="hero-left">
+      <div class="hero-tag">Android automation · local · v2.0.0</div>
+      <h1>teach it once.<br/><em>replay forever.</em></h1>
+      <p class="hero-sub">
+        A local phone brain for Android. The LLM teaches a task once —
+        <strong>IMPRINT executes it forever</strong> from SQLite memory
+        with zero tokens. Uses your OpenClaw default LLM session for new tasks. Runs in Termux.
+      </p>
+      <div class="hero-actions">
+        <a href="https://github.com/inoahaipro/wrangle-imprint" target="_blank" class="btn-primary">
+          ↗ View on GitHub
+        </a>
+        <a href="#quickstart" class="btn-ghost">quickstart →</a>
+      </div>
+    </div>
+
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot dot-r"></span>
+        <span class="dot dot-y"></span>
+        <span class="dot dot-g"></span>
+        <span class="terminal-label">imprint.py · Termux</span>
+      </div>
+      <div class="terminal-body">
+<span class="t-muted">$ </span><span class="t-cmd">python imprint.py ask</span> <span class="t-str">"open youtube and search for lo-fi hip hop"</span>
+
+<span class="t-dim">══════════════════════════════════════════════════════</span>
+  IMPRINT v2.0.0
+  Intent:   open youtube and search for lo-fi hip hop
+  Template: open <span class="t-key">{app}</span> and search for <span class="t-key">{message}</span>
+<span class="t-dim">══════════════════════════════════════════════════════</span>
+
+<span class="t-err">🔍 Cache MISS</span> — querying LLM...
+  LLM: 5 steps · <span class="t-key">812 tokens</span> · 1420ms
+  [1/5] launch → youtube
+  [2/5] tap → search bar
+  [3/5] type → lo-fi hip hop
+  [4/5] keyevent → KEYCODE_ENTER
+  [5/5] done
+
+<span class="t-ok">✅ DONE</span>  LLM · 812 tokens · 3.2s
+   Stored as <span class="t-key">PENDING (1/2)</span>
+
+<span class="t-muted">$ </span><span class="t-cmd">python imprint.py ask</span> <span class="t-str">"open youtube and search for drum and bass"</span>
+
+<span class="t-ok">✅ Cache HIT</span> [TRUSTED] sim=0.94
+  ⚡ Executing 5 steps...
+<span class="t-ok">✅ DONE</span>  cache · <span class="t-ok">0 tokens</span> · 2.1s<span class="cursor"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Stats ── -->
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-num">0<span>tok</span></div>
+      <div class="stat-label">on cache hits</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">~800<span>x</span></div>
+      <div class="stat-label">tokens saved per replay</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">100<span>%</span></div>
+      <div class="stat-label">local — no cloud required</div>
+    </div>
+    <div class="stat">
+      <div class="stat-num">2<span>files</span></div>
+      <div class="stat-label">wrangle.py + imprint.py</div>
+    </div>
+  </div>
+
+  <!-- ── How it works ── -->
+  <section id="how">
+    <div class="section-inner">
+      <div class="section-tag">// how it works</div>
+      <h2 class="section-title">LLM for the new.<br/>IMPRINT for the known.</h2>
+      <p class="section-body reveal">
+        Two components. One learns from experience and caches structured plans.
+        The other controls your phone via ADB and UIAutomator. They work together —
+        and over time the LLM barely fires at all.
+      </p>
+
+      <div class="how-grid">
+        <div class="flow">
+          <div class="flow-step">
+            <div class="flow-left">
+              <div class="flow-dot imprint"></div>
+              <div class="flow-line"></div>
+            </div>
+            <div class="flow-content">
+              <div class="flow-who imprint">imprint</div>
+              <div class="flow-text">Intent arrives → extract template + params</div>
+              <div class="flow-sub">"message mom hey" → template + {contact} + {message}</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-left">
+              <div class="flow-dot imprint"></div>
+              <div class="flow-line"></div>
+            </div>
+            <div class="flow-content">
+              <div class="flow-who imprint">imprint</div>
+              <div class="flow-text">TF-IDF similarity search against SQLite cache</div>
+              <div class="flow-sub">No vector DB. No embeddings API. Pure local math.</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-left">
+              <div class="flow-dot llm"></div>
+              <div class="flow-line"></div>
+            </div>
+            <div class="flow-content">
+              <div class="flow-who llm">llm (only on miss)</div>
+              <div class="flow-text">OpenClaw session plans abstract steps</div>
+              <div class="flow-sub">Element-based targeting, not raw coordinates.</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-left">
+              <div class="flow-dot imprint"></div>
+              <div class="flow-line"></div>
+            </div>
+            <div class="flow-content">
+              <div class="flow-who imprint">imprint + wrangle</div>
+              <div class="flow-text">Execute via ADB + UIAutomator. Verify each step.</div>
+              <div class="flow-sub">Mid-task replan on failure. Per-step retry.</div>
+            </div>
+          </div>
+          <div class="flow-step">
+            <div class="flow-left">
+              <div class="flow-dot done"></div>
+            </div>
+            <div class="flow-content">
+              <div class="flow-who done">stored</div>
+              <div class="flow-text">Plan cached. Next similar intent: 0 tokens.</div>
+              <div class="flow-sub">Requires N confirmations before trusted. Auto-evicts on repeated failure.</div>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="section-tag" style="margin-bottom:16px">// architecture</div>
+          <div class="arch-block"><span class="arch-accent">OpenClaw</span> <span class="arch-dim">(chat / dispatcher)</span>
+      │   <span class="arch-dim">natural language intent</span>
+      ▼
+<span class="arch-module">   imprint.py</span>   <span class="arch-arrow">←──</span> <span class="arch-label">SQLite (~/.imprint/memory.db)</span>
+      │   <span class="arch-dim">JSON action steps</span>
+      ▼
+<span class="arch-module">   wrangle.py</span>   <span class="arch-arrow">←──</span> <span class="arch-label">ADB → Android device</span>
+      │   <span class="arch-dim">JSON results</span>
+      ▼
+<span class="arch-module">   imprint.py</span>   <span class="arch-arrow">→</span> summary / stats</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Features ── -->
+  <section id="features">
+    <div class="section-inner">
+      <div class="section-tag">// features</div>
+      <h2 class="section-title reveal">no hallucinations.<br/>no subscriptions.</h2>
+
+      <div class="features-grid reveal">
+        <div class="feature">
+          <div class="feature-num">01</div>
+          <div class="feature-title"><span>parameterized</span> skill templates</div>
+          <div class="feature-body">Plans use {slot} placeholders. "Message Mom" and "Message Dad" share one cached template. Variable content is extracted and resolved at runtime.</div>
+        </div>
+        <div class="feature">
+          <div class="feature-num">02</div>
+          <div class="feature-title"><span>element-based</span> targeting</div>
+          <div class="feature-body">Steps target UI elements by text, resource-id, or content-desc — not raw coordinates. Works even if the screen layout shifts slightly.</div>
+        </div>
+        <div class="feature">
+          <div class="feature-num">03</div>
+          <div class="feature-title"><span>confirmation</span> threshold</div>
+          <div class="feature-body">New plans start as PENDING. Only promoted to TRUSTED after N successful real-world executions. You control how paranoid it is.</div>
+        </div>
+        <div class="feature">
+          <div class="feature-num">04</div>
+          <div class="feature-title"><span>mid-task</span> replan</div>
+          <div class="feature-body">If a step fails mid-execution, IMPRINT calls the LLM with the current screen state and remaining steps to recover — without starting over.</div>
+        </div>
+        <div class="feature">
+          <div class="feature-num">05</div>
+          <div class="feature-title"><span>destructive</span> action guard</div>
+          <div class="feature-body">Delete, uninstall, purchase, reset — all blocked by default. Requires explicit --confirmed flag or interactive y/N prompt. Not bypassable by the LLM.</div>
+        </div>
+        <div class="feature">
+          <div class="feature-num">06</div>
+          <div class="feature-title"><span>offline</span> queue</div>
+          <div class="feature-body">Queue tasks with --queue when ADB is unavailable. Drain the backlog with imprint.py flush on reconnect. Nothing dropped.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Comparison ── -->
+  <section>
+    <div class="section-inner">
+      <div class="section-tag">// vs the field</div>
+      <h2 class="section-title reveal">the only one that stops calling the LLM.</h2>
+
+      <table class="compare-table reveal">
+        <thead>
+          <tr>
+            <th>Project</th>
+            <th>Zero tokens on replay</th>
+            <th>Runs on-device</th>
+            <th>No external deps</th>
+            <th>Confirmation threshold</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>wrangle-imprint</td>
+            <td><span class="check-y">✓ yes</span></td>
+            <td><span class="check-y">✓ Termux</span></td>
+            <td><span class="check-y">✓ just requests</span></td>
+            <td><span class="check-y">✓ configurable</span></td>
+          </tr>
+          <tr>
+            <td>MobiMem</td>
+            <td><span class="check-p">~ reduces latency</span></td>
+            <td><span class="check-n">✗ research system</span></td>
+            <td><span class="check-n">✗ heavy stack</span></td>
+            <td><span class="check-n">✗</span></td>
+          </tr>
+          <tr>
+            <td>AutoDroid</td>
+            <td><span class="check-n">✗ LLM every step</span></td>
+            <td><span class="check-n">✗ remote</span></td>
+            <td><span class="check-n">✗</span></td>
+            <td><span class="check-n">✗</span></td>
+          </tr>
+          <tr>
+            <td>DroidRun</td>
+            <td><span class="check-n">✗ 3,225 tok/task</span></td>
+            <td><span class="check-n">✗ remote</span></td>
+            <td><span class="check-n">✗</span></td>
+            <td><span class="check-n">✗</span></td>
+          </tr>
+          <tr>
+            <td>AppAgent</td>
+            <td><span class="check-n">✗ $0.90/task</span></td>
+            <td><span class="check-n">✗ vision + remote</span></td>
+            <td><span class="check-n">✗</span></td>
+            <td><span class="check-n">✗</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Quickstart ── -->
+  <section id="quickstart">
+    <div class="section-inner">
+      <div class="section-tag">// quickstart</div>
+      <h2 class="section-title reveal">running in under 10 minutes.</h2>
+
+      <div class="quickstart-grid reveal">
+        <div class="qs-nav">
+          <button class="qs-tab active" data-tab="install">01 · install</button>
+          <button class="qs-tab" data-tab="adb">02 · adb setup</button>
+          <button class="qs-tab" data-tab="first-run">03 · first run</button>
+          <button class="qs-tab" data-tab="env">04 · configure</button>
+        </div>
+        <div>
+          <div class="qs-content active" id="tab-install">
+            <pre class="code-block"><span class="c-comment"># In Termux on your Android device</span>
+<span class="c-cmd">pkg update && pkg install</span> git python openssh
+
+<span class="c-cmd">pip install</span> requests
+
+<span class="c-cmd">git clone</span> https://github.com/inoahaipro/wrangle-imprint.git
+<span class="c-cmd">cd</span> wrangle-imprint
+<span class="c-cmd">mkdir -p</span> ~/.imprint
+
+<span class="c-comment"># Optional: pick an OpenClaw session (default is main)</span>
+<span class="c-cmd">export</span> <span class="c-key">OPENCLAW_SESSION</span>=<span class="c-flag">main</span></pre>
+          </div>
+          <div class="qs-content" id="tab-adb">
+            <pre class="code-block"><span class="c-comment"># Install ADBKeyboard APK on your phone, then:</span>
+<span class="c-cmd">adb shell ime set</span> com.android.adbkeyboard/.AdbIME
+
+<span class="c-comment"># Verify ADB + everything else</span>
+<span class="c-cmd">python</span> wrangle.py check
+<span class="c-cmd">python</span> imprint.py check
+
+<span class="c-comment"># Expected output:</span>
+<span class="c-flag">── wrangle setup check ──
+✅ ADB: localhost:45171 connected
+✅ ADBKeyboard: active
+✅ CEREBRAS_KEY: set (for wrangle LLM tracks)
+✅ OpenClaw: session='main' reachable (for imprint planning)</span></pre>
+          </div>
+          <div class="qs-content" id="tab-first-run">
+            <pre class="code-block"><span class="c-comment"># First run — cache miss, LLM plans it</span>
+<span class="c-cmd">python</span> imprint.py ask <span class="c-flag">"open youtube and search for lo-fi hip hop"</span>
+
+<span class="c-comment"># Same task again — cache hit, 0 tokens</span>
+<span class="c-cmd">python</span> imprint.py ask <span class="c-flag">"open youtube and search for drum and bass"</span>
+
+<span class="c-comment"># Destructive actions need explicit confirmation</span>
+<span class="c-cmd">python</span> imprint.py ask <span class="c-flag">"delete that message"</span> <span class="c-key">--confirmed</span>
+
+<span class="c-comment"># Inspect what's stored</span>
+<span class="c-cmd">python</span> imprint.py list
+<span class="c-cmd">python</span> imprint.py stats</pre>
+          </div>
+          <div class="qs-content" id="tab-env">
+            <pre class="code-block"><span class="c-comment"># Key settings (export in your shell profile)</span>
+<span class="c-key">OPENCLAW_SESSION</span>=main  <span class="c-comment"># session used by imprint planning</span>
+<span class="c-key">CEREBRAS_KEY</span>=csk-...  <span class="c-comment"># optional for direct wrangle browser/text tracks</span>
+<span class="c-key">IMPRINT_THRESHOLD</span>=0.72  <span class="c-comment"># cache match strictness</span>
+<span class="c-key">IMPRINT_CONFIRM</span>=2  <span class="c-comment"># runs before "trusted"</span>
+<span class="c-key">IMPRINT_MAX_STEPS</span>=20  <span class="c-comment"># safety cap</span>
+<span class="c-key">IMPRINT_DEBUG</span>=1  <span class="c-comment"># verbose logging</span>
+<span class="c-key">ADB_PORT</span>=45171  <span class="c-comment"># default in current code</span>
+<span class="c-key">DEVICE_WIDTH</span>=1080  <span class="c-comment"># your screen res</span>
+<span class="c-key">DEVICE_HEIGHT</span>=2340  <span class="c-comment"># S22+ default</span>
+
+<span class="c-cmd">source</span> .env</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CTA ── -->
+  <section>
+    <div class="cta-section">
+      <div class="cta-title">local first.<br/>learns as it<br/><em>goes.</em></div>
+      <div class="cta-right">
+        <div class="cta-line">
+          <span class="cta-icon">→</span>
+          <span>Tested on Samsung S22+ running Termux. Python 3.11+ required. ADB over localhost:45171.</span>
+        </div>
+        <div class="cta-line">
+          <span class="cta-icon">→</span>
+          <span>MIT licensed. Early stage. PRs and issues welcome once public.</span>
+        </div>
+        <div class="cta-line">
+          <span class="cta-icon">→</span>
+          <span>The only dep is <code>requests</code>. Everything else is stdlib.</span>
+        </div>
+        <div class="cta-actions">
+          <a href="https://github.com/inoahaipro/wrangle-imprint" target="_blank" class="btn-primary">↗ GitHub</a>
+          <a href="https://github.com/inoahaipro/wrangle-imprint/blob/main/CONTRACT.md" target="_blank" class="btn-ghost">read the contract →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Footer ── -->
+  <footer>
+    <div class="footer-logo">wrangle<span>-</span>imprint</div>
+    <ul class="footer-links">
+      <li><a href="https://github.com/inoahaipro/wrangle-imprint" target="_blank">GitHub</a></li>
+      <li><a href="https://github.com/inoahaipro/wrangle-imprint/blob/main/README.md" target="_blank">README</a></li>
+      <li><a href="https://github.com/inoahaipro/wrangle-imprint/blob/main/CONTRACT.md" target="_blank">CONTRACT</a></li>
+    </ul>
+    <div class="footer-mit">MIT License · 2026</div>
+  </footer>
+
+  <script>
+    // ── Tabs ──
+    document.querySelectorAll('.qs-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const target = tab.dataset.tab;
+        document.querySelectorAll('.qs-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.qs-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + target).classList.add('active');
+      });
+    });
+
+    // ── Scroll reveal ──
+    const observer = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          // For flow steps inside the viewport
+          e.target.querySelectorAll && e.target.querySelectorAll('.flow-step').forEach(s => s.classList.add('visible'));
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+    // Also observe the how-grid container for flow steps
+    const flowObserver = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.querySelectorAll('.flow-step').forEach(s => s.classList.add('visible'));
+        }
+      });
+    }, { threshold: 0.1 });
+
+    document.querySelectorAll('.flow').forEach(el => flowObserver.observe(el));
+  </script>
+</body>
+</html>
